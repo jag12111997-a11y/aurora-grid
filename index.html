@@ -679,6 +679,7 @@ var CAT_COLOR={work:'#00ff5a',sleep:'#4ad2ff',nap:'#4ad2ff',workout:'#ffd24a',re
    ================================================================ */
 var DB_NAME='omani_life_os', DB_VER=1;
 var STORES=['routines','overrides','events','actuals','healthItems','settings','audit'];
+var DATA_STORES=['routines','overrides','events','actuals','healthItems','audit'];
 var db=null;
 function openDB(){return new Promise(function(res,rej){
   var rq=indexedDB.open(DB_NAME,DB_VER);
@@ -691,11 +692,11 @@ function tx(store,mode){return db.transaction(store,mode).objectStore(store);}
 function repoAll(store){return new Promise(function(res,rej){var r=tx(store).getAll();
   r.onsuccess=function(){res(r.result||[]);};r.onerror=function(){rej(r.error);};});}
 function repoPut(store,val){return new Promise(function(res,rej){var r=tx(store,'readwrite').put(val);
-  r.onsuccess=function(){res(val);};r.onerror=function(){rej(r.error);};});}
+  r.onsuccess=function(){if(!_ghApplying&&store!=='settings')ghMarkDirty();res(val);};r.onerror=function(){rej(r.error);};});}
 function repoDel(store,key){return new Promise(function(res,rej){var r=tx(store,'readwrite').delete(key);
-  r.onsuccess=function(){res();};r.onerror=function(){rej(r.error);};});}
+  r.onsuccess=function(){if(!_ghApplying&&store!=='settings')ghMarkDirty();res();};r.onerror=function(){rej(r.error);};});}
 function repoClear(store){return new Promise(function(res,rej){var r=tx(store,'readwrite').clear();
-  r.onsuccess=function(){res();};r.onerror=function(){rej(r.error);};});}
+  r.onsuccess=function(){if(!_ghApplying&&store!=='settings')ghMarkDirty();res();};r.onerror=function(){rej(r.error);};});}
 
 /* in-memory mirror */
 var state={routines:[],overrides:[],events:[],actuals:[],healthItems:[],audit:[],settings:{}};
@@ -711,22 +712,23 @@ function audit(action,entity,before,after){var rec={id:uid(),ts:Date.now(),actio
    Token is stored ONLY in this browser (settings), never in the app or the repo. ============ */
 function ghCfg(){return {owner:state.settings.gh_owner||'',repo:state.settings.gh_repo||'',token:state.settings.gh_token||'',path:state.settings.gh_path||'lifeos-data.json'};}
 function ghOn(){var c=ghCfg();return !!(c.owner&&c.repo&&c.token);}
-function _snapshot(){var o={};['routines','overrides','events','actuals','healthItems','audit'].forEach(function(s){o[s]=state[s];});
-  var st={};Object.keys(state.settings||{}).forEach(function(k){if(k.indexOf('gh_')!==0)st[k]=state.settings[k];});o.settings=st;return o;}
+function _snapshot(){var o={};DATA_STORES.forEach(function(s){o[s]=state[s];});return o;}
 function b64enc(str){return btoa(unescape(encodeURIComponent(str)));}
 function b64dec(b64){return decodeURIComponent(escape(atob((b64||'').replace(/\n/g,''))));}
 function ghApi(opts){var c=ghCfg();opts=opts||{};
   opts.headers=Object.assign({Authorization:'Bearer '+c.token,Accept:'application/vnd.github+json'},opts.headers||{});
   return fetch('https://api.github.com/repos/'+c.owner+'/'+c.repo+'/contents/'+encodeURIComponent(c.path),opts);}
-function ghSave(){
-  if(!ghOn()){toast('CONNECT GITHUB FIRST');return;}
-  toast('SAVING\u2026');ghStatus('working');
-  var payload=JSON.stringify({app:'omani-life-os',savedAt:new Date().toISOString(),data:_snapshot()},null,2);
+function ghSave(silent){
+  if(!ghOn()){if(!silent)toast('CONNECT GITHUB FIRST');return Promise.resolve();}
+  if(!silent)toast('SAVING\u2026');ghStatus('working');
+  var savedAt=new Date().toISOString();
+  var payload=JSON.stringify({app:'omani-life-os',savedAt:savedAt,data:_snapshot()},null,2);
   return ghApi({method:'GET'}).then(function(r){return r.status===404?null:(r.ok?r.json().then(function(j){return j.sha;}):Promise.reject(new Error('GitHub '+r.status)));})
-   .then(function(sha){var body={message:'life os save',content:b64enc(payload)};if(sha)body.sha=sha;
+   .then(function(sha){var body={message:'life os sync',content:b64enc(payload)};if(sha)body.sha=sha;
      return ghApi({method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});})
-   .then(function(r){if(!r.ok)throw new Error('GitHub '+r.status);toast('SAVED TO GITHUB');ghStatus('ok');})
-   .catch(function(e){toast('SAVE FAILED: '+e.message);ghStatus('err');});
+   .then(function(r){if(!r.ok)throw new Error('GitHub '+r.status);return setSetting('gh_lastSync',savedAt);})
+   .then(function(){ghStatus('ok');if(!silent)toast('SAVED TO GITHUB');})
+   .catch(function(e){ghStatus('err');if(!silent)toast('SAVE FAILED: '+e.message);});
 }
 function ghLoad(){
   if(!ghOn()){toast('CONNECT GITHUB FIRST');return;}
@@ -735,20 +737,22 @@ function ghLoad(){
     if(r.status===404){toast('NO SAVE FOUND YET');ghStatus('ok');return;}
     if(!r.ok)throw new Error('GitHub '+r.status);
     return r.json().then(function(j){var dump=JSON.parse(b64dec(j.content));var data=dump.data||dump;
-      return applyPayload(data).then(function(){toast('LOADED FROM GITHUB');ghStatus('ok');});});
+      return applyPayload(data).then(function(){return setSetting('gh_lastSync',dump.savedAt||new Date().toISOString());}).then(function(){toast('LOADED FROM GITHUB');ghStatus('ok');});});
   }).catch(function(e){toast('LOAD FAILED: '+e.message);ghStatus('err');});
 }
 function applyPayload(payload){
   if(!payload)return Promise.resolve();
-  return Promise.all(STORES.map(function(s){return repoClear(s);})).then(function(){
-    var ops=[];['routines','overrides','events','actuals','healthItems','audit'].forEach(function(s){(payload[s]||[]).forEach(function(r){ops.push(repoPut(s,r));});});
-    Object.keys(payload.settings||{}).forEach(function(k){if(k.indexOf('gh_')!==0)ops.push(repoPut('settings',{key:k,value:payload.settings[k]}));});
+  _ghApplying=true;
+  return Promise.all(DATA_STORES.map(function(s){return repoClear(s);})).then(function(){
+    var ops=[];DATA_STORES.forEach(function(s){(payload[s]||[]).forEach(function(r){ops.push(repoPut(s,r));});});
     return Promise.all(ops);
-  }).then(loadAll).then(function(){if(typeof renderHome==='function')renderHome();});
+  }).then(loadAll).then(function(){_ghApplying=false;if(typeof renderHome==='function')renderHome();})
+   .catch(function(e){_ghApplying=false;throw e;});
 }
 function ghConnect(owner,repo,token){
   state.settings.gh_owner=owner;state.settings.gh_repo=repo;state.settings.gh_token=token;state.settings.gh_path=state.settings.gh_path||'lifeos-data.json';
-  return Promise.all([setSetting('gh_owner',owner),setSetting('gh_repo',repo),setSetting('gh_token',token),setSetting('gh_path',state.settings.gh_path)]);
+  return Promise.all([setSetting('gh_owner',owner),setSetting('gh_repo',repo),setSetting('gh_token',token),setSetting('gh_path',state.settings.gh_path)])
+    .then(function(){return ghInitialSync();});
 }
 function ghDisconnect(){['gh_owner','gh_repo','gh_token','gh_path'].forEach(function(k){delete state.settings[k];});
   return Promise.all(['gh_owner','gh_repo','gh_token','gh_path'].map(function(k){return repoDel('settings',k);}))
@@ -756,6 +760,33 @@ function ghDisconnect(){['gh_owner','gh_repo','gh_token','gh_path'].forEach(func
 function ghStatus(st){var d=document.getElementById('ghDot');if(d){d.style.display='inline-block';
   d.style.background=st==='ok'?'#00ff5a':(st==='err'?'#ff5a5a':(st==='working'?'#ffd24a':'#5f9f74'));}
   var m=document.getElementById('ghState');if(m)m.textContent=(st==='ok'?'synced':(st==='err'?'error':(st==='working'?'saving\u2026':'connected')));}
+
+/* ---- auto-sync engine ---- */
+var _ghApplying=false,_ghPushT=null,_ghPolling=false;
+function ghHasData(){return !!((state.events&&state.events.length)||(state.actuals&&state.actuals.length));}
+function ghMarkDirty(){if(!ghOn()||_ghApplying)return;clearTimeout(_ghPushT);_ghPushT=setTimeout(function(){ghSave(true);},1500);}
+function ghPullIfNewer(){
+  if(!ghOn())return Promise.resolve();
+  ghStatus('working');
+  return ghApi({method:'GET'}).then(function(r){
+    if(r.status===404){ghStatus('ok');return;}
+    if(!r.ok)throw new Error('GitHub '+r.status);
+    return r.json().then(function(j){
+      var dump=JSON.parse(b64dec(j.content));var savedAt=dump.savedAt||'';var data=dump.data||dump;
+      var last=state.settings.gh_lastSync||'';
+      if(savedAt&&savedAt>last)return applyPayload(data).then(function(){return setSetting('gh_lastSync',savedAt);}).then(function(){ghStatus('ok');});
+      ghStatus('ok');
+    });
+  }).catch(function(){ghStatus('err');});
+}
+function ghStartPoll(){if(_ghPolling)return;_ghPolling=true;
+  setInterval(function(){if(document.visibilityState==='visible')ghPullIfNewer();},20000);
+  window.addEventListener('focus',function(){ghPullIfNewer();});}
+function ghAutoOpen(){if(!ghOn())return;ghPullIfNewer();ghStartPoll();}
+function ghInitialSync(){if(!ghOn())return Promise.resolve();
+  if(ghHasData())return ghSave(true).then(ghStartPoll);   // this device has data -> seed the repo
+  return ghPullIfNewer().then(ghStartPoll);               // empty device -> pull what's there
+}
 
 /* generic upsert/remove that keep memory + db + audit in sync */
 function put(store,val,doAudit){var before=null;var arr=state[store];
@@ -1923,6 +1954,7 @@ function boot(){
     showView(last);
     selfTest();
     maybeAutoBackup();
+    ghAutoOpen();
   }).catch(function(err){
     console.error(err);
     document.querySelector('main').innerHTML='<div class="panel" style="margin:40px auto;max-width:520px"><h2>STORAGE ERROR</h2><div class="hint">This browser blocked local storage (IndexedDB). If you are in private-browsing mode, try a normal window. Error: '+(err&&err.message||err)+'</div></div>';
