@@ -1498,9 +1498,13 @@ function exportData(){
 }
 function lastSundayYmd(){var d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()-d.getDay());return ymd(d);}
 function maybeAutoBackup(){
-  var lb=state.settings.lastBackup||'';
   var sun=lastSundayYmd();
-  if(lb<sun){try{exportData();}catch(e){}setSetting('lastBackup',todayYmd());}
+  var lb=state.settings.lastBackup;
+  if(!lb){setSetting('lastBackup',todayYmd());return;}
+  if(lb>=sun)return;
+  var hasData=(state.actuals&&state.actuals.length)||(state.events&&state.events.length);
+  if(hasData){try{exportData();}catch(e){}}
+  setSetting('lastBackup',todayYmd());
 }
 function importData(e){
   var file=e.target.files[0];if(!file)return;var rd=new FileReader();
