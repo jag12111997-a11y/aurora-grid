@@ -650,6 +650,7 @@ function parseYmd(s){var p=s.split('-');return new Date(+p[0],+p[1]-1,+p[2]);}
 function todayYmd(){return ymd(new Date());}
 function addDays(s,n){var d=parseYmd(s);d.setDate(d.getDate()+n);return ymd(d);}
 function diffDays(a,b){return Math.round((parseYmd(b)-parseYmd(a))/86400000);}
+function weekStartSunday(s){return addDays(s,-parseYmd(s).getDay());}
 function fmtTime(hm){ // '21:00' -> '9:00 PM'
   if(!hm)return '';var p=hm.split(':'),h=+p[0],m=+p[1];var ap=h<12?'AM':'PM';var h12=h%12;if(h12===0)h12=12;
   return h12+':'+pad(m)+' '+ap;}
@@ -935,7 +936,7 @@ function renderHome(){
     if(window.planetary&&planetary.ready())setTimeout(planetary.redraw,30);
   }else{
     cal.style.display='none';rep.style.display='';
-    $('#hRangeLabel').textContent=ui.rRange==='week'?'(current week, Mon\u2013Sun)':'('+MON[ui.calM]+' '+ui.calY+')';
+    $('#hRangeLabel').textContent=ui.rRange==='week'?'(current week, Sun\u2013Sat)':'('+MON[ui.calM]+' '+ui.calY+')';
     $$('#hRangeBar button').forEach(function(b){b.classList.toggle('on',b.dataset.hrange===ui.rRange);});
     var body=$('#hBody');body.innerHTML='';
     if(ui.homeTab==='summary')reportSummary(body);
@@ -1241,8 +1242,8 @@ function openOverrideModal(o){
    ================================================================ */
 function rangeDays(){
   var days=[];
-  if(ui.rRange==='week'){var t=new Date();var off=t.getDay();var mon=addDays(todayYmd(),-((off+6)%7));
-    for(var i=0;i<7;i++)days.push(addDays(mon,i));}
+  if(ui.rRange==='week'){var sun=weekStartSunday(todayYmd());
+    for(var i=0;i<7;i++)days.push(addDays(sun,i));}
   else{var y=ui.calY,m=ui.calM;var n=new Date(y,m+1,0).getDate();for(var j=1;j<=n;j++)days.push(y+'-'+pad(m+1)+'-'+pad(j));}
   return days;}
 function collectRange(){
@@ -1284,7 +1285,7 @@ function trackedDur(o,now){
   return autoElapsedDur(o,now);
 }
 function renderReports(){
-  $('#rRangeLabel').textContent = ui.rRange==='week'?'(current week, Mon–Sun)':'('+MON[ui.calM]+' '+ui.calY+')';
+  $('#rRangeLabel').textContent = ui.rRange==='week'?'(current week, Sun–Sat)':'('+MON[ui.calM]+' '+ui.calY+')';
   $$('#rRangeBar button').forEach(function(b){b.classList.toggle('on',b.dataset.range===ui.rRange);});
   $$('#rTabs button').forEach(function(b){b.classList.toggle('on',b.dataset.r===ui.rTab);});
   var body=$('#rBody');body.innerHTML='';
@@ -1982,6 +1983,8 @@ function selfTest(){
   A('leap day exists', addDays('2028-02-28',1)==='2028-02-29');
   A('non-leap skips', addDays('2027-02-28',1)==='2027-03-01');
   A('diffDays', diffDays('2026-08-01','2026-08-08')===7);
+  A('Sunday starts a new reporting week',weekStartSunday('2026-08-23')==='2026-08-23');
+  A('Monday stays in Sunday-start week',weekStartSunday('2026-08-24')==='2026-08-23');
   var wr={id:'t1',category:'work',recur:'weekly',weekdays:[1],effectiveFrom:'2026-08-01'};
   A('weekly hits Monday', recurHit(wr,'2026-08-17')===true); // 2026-08-17 is Monday
   A('weekly misses Tuesday', recurHit(wr,'2026-08-18')===false);
