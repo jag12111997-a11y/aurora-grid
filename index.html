@@ -800,7 +800,9 @@ function remove(store,id,doAudit){var arr=state[store];var i=arr.findIndex(funct
   return repoDel(store,id);}
 
 /* expose a few internals for the self-test harness */
-window.__life={state:state,durMin:durMin,ymd:ymd,addDays:addDays};
+window.__life={state:state,durMin:durMin,ymd:ymd,addDays:addDays,
+  occurrenceWindow:occurrenceWindow,autoElapsedDur:autoElapsedDur,trackedDur:trackedDur,
+  scheduleRulesV2:scheduleRulesV2};
 
 /* ================================================================
    ROUTINE ENGINE
@@ -984,11 +986,15 @@ function todayItem(o){
   }
   if(o.actual){
     var a=o.actual;
+    kv.appendChild(el('span',{class:'pill',text:'MANUAL'}));
     if(a.actualStart||a.actualEnd)kv.appendChild(el('span',{class:'badge act',text:'ACTUAL '+(a.actualStart?fmtTime(a.actualStart):'—')+(a.actualEnd?'–'+fmtTime(a.actualEnd):'')}));
     if(a.durationMin!=null)kv.appendChild(el('span',{html:'Actual dur <b>'+fmtDur(a.durationMin)+'</b>'}));
     if(a.actualDose)kv.appendChild(el('span',{html:'Took <b>'+a.actualDose+'</b>'}));
     if(a.completed)kv.appendChild(el('span',{class:'badge done',text:'✓ DONE'}));
     if(a.notes)kv.appendChild(el('span',{html:'Note: '+a.notes}));
+  }else{
+    var elapsed=trackedDur(o);
+    if(elapsed>0)kv.appendChild(el('span',{class:'badge act',text:isCompleted(o)?'AUTO ✓ '+fmtDur(elapsed):'AUTO '+fmtDur(elapsed)+' ELAPSED'}));
   }
   var body=el('div',{class:'body'},[kv, el('div',{class:'row'},[
     el('button',{class:'btn sm',onclick:function(ev){ev.stopPropagation();openLogModal(o);}},[o.actual?'EDIT ACTUAL':'LOG ACTUAL']),
@@ -1004,8 +1010,9 @@ function todayItem(o){
 }
 function quickComplete(o){
   var eff=isCompleted(o);
-  var a=o.actual||{id:o.refId+'|'+o.date,refId:o.refId,date:o.date,category:o.category};
+  var a=o.actual?JSON.parse(JSON.stringify(o.actual)):{id:o.refId+'|'+o.date,refId:o.refId,date:o.date,category:o.category};
   a.completed=!eff;
+  a.manual=true;
   if(a.completed&&a.durationMin==null&&o.dur!=null)a.durationMin=o.dur;
   put('actuals',a,true).then(function(){renderHome();toast(a.completed?'MARKED DONE':'MARKED NOT DONE');});
 }
@@ -1172,27 +1179,34 @@ function openLogModal(o){
   var health=o.category==='medication'||o.category==='supplement';
   var start=el('input',{type:'time',value:a.actualStart||o.start||''});
   var end=el('input',{type:'time',value:a.actualEnd||o.end||''});
+  var hours=el('input',{type:'number',min:'0',step:'0.25',placeholder:'e.g. 7.5',
+    value:a.durationMin!=null?String((a.durationMin/60).toFixed(2)).replace(/\.?0+$/,''):''});
   var dose=el('input',{type:'text',value:a.actualDose||(o.health&&o.health.dose)||'',placeholder:'e.g. 5 mg / 1 cap'});
   var done=el('input',{type:'checkbox'});done.checked=isCompleted(o);
-  var doneLab=el('label',{style:'display:flex;gap:8px;align-items:center;color:var(--green-soft)'},[done,document.createTextNode('Completed / taken')]);
+  var doneLab=el('label',{style:'display:flex;gap:8px;align-items:center;color:var(--green-soft)'},[done,document.createTextNode('Count this session / block as completed')]);
   var notes=el('textarea',{rows:'2',value:a.notes||''});
   var fields=[el('h3',{text:'LOG ACTUAL · '+o.title})];
-  fields.push(el('div',{class:'hint',style:'margin-bottom:8px'},['Planned: '+(o.start?fmtTime(o.start)+(o.end?' – '+fmtTime(o.end):''):(o.tbd?'TBD':'—'))+(o.dur!=null?' ('+fmtDur(o.dur)+')':'')]));
+  fields.push(el('div',{class:'hint',style:'margin-bottom:8px'},['Planned: '+(o.start?fmtTime(o.start)+(o.end?' – '+fmtTime(o.end):''):(o.tbd?'TBD':'—'))+(o.dur!=null?' ('+fmtDur(o.dur)+')':'')+'. Saving creates a one-day actual record; RESTORE AUTO removes it and resumes schedule tracking.']));
   if(health){fields.push(fld('Actual dose taken',dose));}
-  else{fields.push(el('div',{class:'fld two'},[el('div',{},[el('label',{text:'Actual start'}),start]),el('div',{},[el('label',{text:'Actual end'}),end])]));}
+  else{
+    fields.push(el('div',{class:'fld two'},[el('div',{},[el('label',{text:'Actual start'}),start]),el('div',{},[el('label',{text:'Actual end'}),end])]));
+    fields.push(fld('Actual hours (optional — overrides the times above)',hours));
+  }
   fields.push(el('div',{class:'fld'},[doneLab]));
   fields.push(fld('Notes',notes));
   fields.push(el('div',{class:'modal-actions'},[
     el('button',{class:'btn primary',onclick:function(){
-      var rec=o.actual||{id:o.refId+'|'+o.date,refId:o.refId,date:o.date};
+      if(hours.value!==''&&(!isFinite(+hours.value)||+hours.value<0)){toast('ENTER VALID ACTUAL HOURS');return;}
+      var rec=o.actual?JSON.parse(JSON.stringify(o.actual)):{id:o.refId+'|'+o.date,refId:o.refId,date:o.date};
       rec.category=o.category;rec.title=o.title;
       if(health){rec.actualDose=dose.value.trim();}
       else{rec.actualStart=start.value;rec.actualEnd=end.value;
-        rec.durationMin=(start.value&&end.value)?durMin(start.value,end.value,toMin(end.value)<=toMin(start.value)):(o.dur!=null?o.dur:null);}
-      rec.completed=done.checked;rec.notes=notes.value.trim();
+        rec.durationMin=hours.value!==''?Math.round(+hours.value*60):
+          ((start.value&&end.value)?durMin(start.value,end.value,toMin(end.value)<=toMin(start.value)):(o.dur!=null?o.dur:null));}
+      rec.completed=done.checked;rec.manual=true;rec.notes=notes.value.trim();
       put('actuals',rec,true).then(function(){closeModal();renderHome();toast('ACTUAL SAVED');});
     }},['SAVE']),
-    (o.actual?el('button',{class:'btn danger',onclick:function(){remove('actuals',o.actual.id,true).then(function(){closeModal();renderHome();toast('ACTUAL CLEARED');});}},['CLEAR']):null),
+    (o.actual?el('button',{class:'btn danger',onclick:function(){remove('actuals',o.actual.id,true).then(function(){closeModal();renderHome();toast('AUTOMATIC TRACKING RESTORED');});}},['RESTORE AUTO']):null),
     el('button',{class:'btn ghost',onclick:closeModal},['CANCEL'])
   ]));
   openModal(el('div',{},fields));
@@ -1200,6 +1214,7 @@ function openLogModal(o){
 
 /* one-day override of a routine (change times / title for a single date) */
 function openOverrideModal(o){
+  var existing=overrideFor(o.refId,o.date);
   var start=el('input',{type:'time',value:o.start||''});
   var end=el('input',{type:'time',value:o.end||''});
   var title=el('input',{type:'text',value:o.title});
@@ -1210,11 +1225,12 @@ function openOverrideModal(o){
     el('div',{class:'fld two'},[el('div',{},[el('label',{text:'Start'}),start]),el('div',{},[el('label',{text:'End'}),end])]),
     el('div',{class:'modal-actions'},[
       el('button',{class:'btn primary',onclick:function(){
-        var ov=overrideFor(o.refId,o.date)||{id:uid(),routineId:o.refId,date:o.date};
+        var ov=existing?JSON.parse(JSON.stringify(existing)):{id:uid(),routineId:o.refId,date:o.date};
         ov.type='modify';ov.patch={title:title.value,start:start.value,end:end.value,
           crosses:end.value&&start.value&&toMin(end.value)<=toMin(start.value)};
         put('overrides',ov,true).then(function(){closeModal();renderHome();toast('DAY OVERRIDDEN');});
       }},['SAVE OVERRIDE']),
+      (existing&&existing.type==='modify'?el('button',{class:'btn danger',onclick:function(){remove('overrides',existing.id,true).then(function(){closeModal();renderHome();toast('SCHEDULE RESTORED');});}},['RESTORE SCHEDULE']):null),
       el('button',{class:'btn ghost',onclick:closeModal},['CANCEL'])
     ])
   ]));
@@ -1233,28 +1249,39 @@ function collectRange(){
   var days=rangeDays();var items=[];
   days.forEach(function(ds){occurrencesFor(ds).forEach(function(o){items.push(o);});});
   return {days:days,items:items};}
-function catDur(o){ // best-known duration in minutes for a report
-  if(o.actual&&o.actual.durationMin!=null)return o.actual.durationMin;
-  if(o.actual&&o.actual.completed&&o.dur!=null)return o.dur;
-  return o.dur; // plan fallback
+function occurrenceWindow(o){
+  if(o.tbd||!o.start)return null;
+  var d=parseYmd(o.date),sp=o.start.split(':');
+  var start=new Date(d.getFullYear(),d.getMonth(),d.getDate(),+sp[0],+sp[1],0);
+  var end=null;
+  if(o.end){var ep=o.end.split(':');end=new Date(d.getFullYear(),d.getMonth(),d.getDate(),+ep[0],+ep[1],0);
+    if(o.crosses||toMin(o.end)<=toMin(o.start))end.setDate(end.getDate()+1);
+  }else if(o.dur!=null){end=new Date(start.getTime()+o.dur*60000);}
+  if(!end)return null;
+  return {start:start,end:end,duration:o.dur!=null?o.dur:Math.max(0,Math.round((end-start)/60000))};
 }
-function hasPassed(o){
-  if(o.tbd)return false;
-  var hm=o.end||o.start;if(!hm)return false;
-  var d=parseYmd(o.date),ep=hm.split(':');
-  var end=new Date(d.getFullYear(),d.getMonth(),d.getDate(),+ep[0],+ep[1],0);
-  if(o.end&&o.start){var sp=o.start.split(':');if((+ep[0])*60+(+ep[1])<=(+sp[0])*60+(+sp[1]))end.setDate(end.getDate()+1);}
-  return new Date()>=end;
+function autoElapsedDur(o,now){
+  var w=occurrenceWindow(o);if(!w)return 0;
+  now=now||new Date();
+  if(now<=w.start)return 0;
+  if(now>=w.end)return w.duration;
+  return Math.max(0,Math.min(w.duration,Math.floor((now-w.start)/60000)));
+}
+function hasPassed(o,now){
+  var w=occurrenceWindow(o);return !!(w&&(now||new Date())>=w.end);
 }
 function isCompleted(o){
   if(o.actual&&o.actual.completed===true)return true;
   if(o.actual&&o.actual.completed===false)return false;
   return hasPassed(o);
 }
-function completedDur(o){
-  if(!isCompleted(o))return 0;
-  if(o.actual&&o.actual.durationMin!=null)return o.actual.durationMin;
-  return o.dur||0;
+function trackedDur(o,now){
+  if(o.actual&&o.actual.completed===false)return 0;
+  if(o.actual&&o.actual.completed===true){
+    if(o.actual.durationMin!=null)return o.actual.durationMin;
+    return o.dur||0;
+  }
+  return autoElapsedDur(o,now);
 }
 function renderReports(){
   $('#rRangeLabel').textContent = ui.rRange==='week'?'(current week, Mon–Sun)':'('+MON[ui.calM]+' '+ui.calY+')';
@@ -1274,17 +1301,18 @@ function statCard(lbl,val,unit,lines){
   return c;}
 function reportSummary(body){
   var R=collectRange();
-  function sumCat(cat){var plan=0,comp=0,n=0,compN=0;
+  function sumCat(cat){var plan=0,comp=0,n=0,compN=0,startedN=0;
     R.items.forEach(function(o){if(o.category!==cat)return;n++;
       if(o.dur!=null)plan+=o.dur;
-      if(isCompleted(o)){comp+=completedDur(o);compN++;}});
-    return {plan:plan,comp:comp,n:n,compN:compN};}
+      var tracked=trackedDur(o);if(tracked>0)startedN++;
+      comp+=tracked;if(isCompleted(o))compN++;});
+    return {plan:plan,comp:comp,n:n,compN:compN,startedN:startedN};}
   var grid=el('div',{class:'rgrid'});
   var work=sumCat('work');
   grid.appendChild(statCard('WORK',fmtHrs(work.comp),'hrs',[
     ['Completed',work.compN+' / '+work.n+' shifts'],['Planned',fmtHrs(work.plan)+'h']]));
   var sleep=sumCat('sleep'),nap=sumCat('nap');
-  var sleepDays=R.items.filter(function(o){return o.category==='sleep';}).length||1;
+  var sleepDays=sleep.startedN||1;
   grid.appendChild(statCard('SLEEP',fmtHrs(sleep.comp),'hrs',[
     ['Avg / night',fmtHrs(sleep.comp/sleepDays)+'h'],['Naps',nap.n],['Planned',fmtHrs(sleep.plan)+'h']]));
   var wk=sumCat('workout');
@@ -1300,7 +1328,7 @@ function reportSummary(body){
   grid.appendChild(statCard('HEALTH',hi.length?Math.round(hiDone/hi.length*100)+'%':'—','done',[['Scheduled',hi.length],['Completed',hiDone]]));
   body.appendChild(grid);
   body.appendChild(el('div',{class:'note',style:'margin-top:14px'},[el('b',{text:'HOW THIS COUNTS '}),
-    document.createTextNode('A block counts as completed once its scheduled time has passed. If you did not do it, open it and mark NOT DONE and it drops from these totals. Untimed (TBD) blocks only count once you mark them done.')]));
+    document.createTextNode('Timed blocks fill automatically as their scheduled minutes pass and count as completed at the end. Open any item to enter actual hours, mark it not done, or restore automatic tracking. Untimed (TBD) blocks count only after you log them.')]));
 }
 function reportHealth(body){
   var R=collectRange();
@@ -1573,11 +1601,11 @@ function renderQuarters(){
   var agg={work:0,workoutN:0,workoutMin:0,trading:0,sleepMin:0,sleepN:0,recovery:0};
   months.forEach(function(m){var n=new Date(y,m+1,0).getDate();
     for(var d=1;d<=n;d++){var ds=y+'-'+pad(m+1)+'-'+pad(d);
-      occurrencesFor(ds).forEach(function(o){var dur=catDur(o)||0;
-        if(o.category==='work')agg.work+=(o.actual&&o.actual.durationMin!=null?o.actual.durationMin:dur);
-        else if(o.category==='workout'){agg.workoutN++;agg.workoutMin+=dur;}
-        else if(o.category==='trading')agg.trading+=(o.actual&&o.actual.durationMin!=null?o.actual.durationMin:dur);
-        else if(o.category==='sleep'){agg.sleepMin+=dur;agg.sleepN++;}
+      occurrencesFor(ds).forEach(function(o){var dur=trackedDur(o);
+        if(o.category==='work')agg.work+=dur;
+        else if(o.category==='workout'){if(isCompleted(o))agg.workoutN++;agg.workoutMin+=dur;}
+        else if(o.category==='trading')agg.trading+=dur;
+        else if(o.category==='sleep'){agg.sleepMin+=dur;if(dur>0)agg.sleepN++;}
         else if(o.category==='recovery')agg.recovery+=dur;});}});
   grid.appendChild(statCard('WORK',fmtHrs(agg.work),'hrs',[['Months',months.map(function(m){return MONA[m];}).join(' · ')]]));
   grid.appendChild(statCard('WORKOUTS',String(agg.workoutN),'sessions',[['Hours',fmtHrs(agg.workoutMin)+'h']]));
@@ -1590,25 +1618,65 @@ function renderQuarters(){
 }
 
 /* ================================================================
-   SEED DATA  (first run only) — safe subset per build queue rules
+   WEEKLY SCHEDULE — transcribed from the uploaded weekly schedule.
+   Each timed rule can advance automatically; separate rules preserve
+   the different wake/workout times without special category logic.
+   ================================================================ */
+var SCHEDULE_VERSION=2;
+function scheduleRulesV2(){return [
+  {id:'schedule-v2-work',source:'weekly-schedule-v2',category:'work',title:'Day Work Shift',short:'WORK',recur:'weekly',weekdays:[1,2,3,4,5],
+    start:'09:00',end:'17:00',crosses:false,effectiveFrom:'2026-08-01',notes:'Weekly schedule: work 9:00 AM–5:00 PM, Monday–Friday.'},
+  {id:'schedule-v2-workout-long',source:'weekly-schedule-v2',category:'workout',title:'Workout / Stretch',short:'GYM',recur:'weekly',weekdays:[1,3],
+    start:'05:55',end:'07:00',crosses:false,effectiveFrom:'2026-08-01',notes:'Weekly schedule: Monday and Wednesday workout/stretch.'},
+  {id:'schedule-v2-workout-short',source:'weekly-schedule-v2',category:'workout',title:'Morning Stretch',short:'GYM',recur:'weekly',weekdays:[2,4,5],
+    start:'06:30',end:'07:00',crosses:false,effectiveFrom:'2026-08-01',notes:'Weekly schedule: Tuesday, Thursday and Friday stretch.'},
+  {id:'schedule-v2-recovery',source:'weekly-schedule-v2',category:'recovery',title:'Rest / Recovery',short:'REST',recur:'weekly',weekdays:[1,2,3,4,5],
+    start:'18:00',end:'18:55',crosses:false,effectiveFrom:'2026-08-01',notes:'Weekly schedule: rest after work/cooking.'},
+  {id:'schedule-v2-trading',source:'weekly-schedule-v2',category:'trading',title:'Trading Block',short:'TRADE',recur:'weekly',weekdays:[1,2,3,4],
+    start:'19:00',end:'20:15',crosses:false,effectiveFrom:'2026-08-01',notes:'Weekly schedule: Monday–Thursday trading transition/block.'},
+  {id:'schedule-v2-sleep-mon',source:'weekly-schedule-v2',category:'sleep',title:'Night Sleep · 4:15 wake',short:'SLEEP',recur:'weekly',weekdays:[1],
+    start:'21:00',end:'04:15',crosses:true,effectiveFrom:'2026-08-01',notes:'Monday night sleep ending Tuesday around 4:00–4:15 AM; later time used.'},
+  {id:'schedule-v2-sleep-tue',source:'weekly-schedule-v2',category:'sleep',title:'Night Sleep · 5:15 wake',short:'SLEEP',recur:'weekly',weekdays:[2],
+    start:'21:00',end:'05:15',crosses:true,effectiveFrom:'2026-08-01',notes:'Tuesday night sleep ending Wednesday around 4:45–5:15 AM; later time used.'},
+  {id:'schedule-v2-sleep-wed-thu',source:'weekly-schedule-v2',category:'sleep',title:'Night Sleep · 6:15 wake',short:'SLEEP',recur:'weekly',weekdays:[3,4],
+    start:'21:00',end:'06:15',crosses:true,effectiveFrom:'2026-08-01',notes:'Wednesday/Thursday night sleep ending around 5:45–6:15 AM; later time used.'},
+  {id:'schedule-v2-sleep-sat',source:'weekly-schedule-v2',category:'sleep',title:'Saturday Sleep',short:'SLEEP',recur:'weekly',weekdays:[6],
+    start:'14:00',end:'20:00',crosses:false,effectiveFrom:'2026-08-01',notes:'Weekly schedule: Saturday sleep 2:00–8:00 PM.'},
+  {id:'schedule-v2-sleep-sun',source:'weekly-schedule-v2',category:'sleep',title:'Sunday Sleep',short:'SLEEP',recur:'weekly',weekdays:[0],
+    start:'03:00',end:'11:00',crosses:false,effectiveFrom:'2026-08-01',notes:'Weekly schedule: Sunday sleep 3:00–11:00 AM.'}
+];}
+
+function ensureScheduleV2(){
+  if(+state.settings.scheduleVersion>=SCHEDULE_VERSION)return Promise.resolve();
+  var templates=scheduleRulesV2(),ops=[];
+  function untouched(r,title,notes){return r&&r.title===title&&r.notes===notes&&!r.effectiveTo&&!r.source;}
+  function replaceLegacy(old,t){
+    var next=JSON.parse(JSON.stringify(t));next.id=old.id;
+    var i=state.routines.indexOf(old);if(i>=0)state.routines[i]=next;
+    ops.push(repoPut('routines',next));return true;
+  }
+  function add(t){if(state.routines.some(function(r){return r.id===t.id;}))return;
+    var next=JSON.parse(JSON.stringify(t));state.routines.push(next);ops.push(repoPut('routines',next));}
+  var legacyWork=state.routines.find(function(r){return untouched(r,'Overnight Work Shift','LOCKED schedule. Shift starts the listed night and ends 5:00 AM next day.')&&r.start==='21:00'&&r.end==='05:00'&&r.crosses===true;});
+  if(legacyWork)replaceLegacy(legacyWork,templates[0]);
+  var legacyWorkout=state.routines.find(function(r){return untouched(r,'Workout / Stretch','Time TBD — weekly notes conflict with overnight framing. Confirm start time.')&&r.tbd===true&&r.durPlan===55;});
+  if(legacyWorkout){replaceLegacy(legacyWorkout,templates[1]);add(templates[2]);}
+  var legacyTrading=state.routines.find(function(r){return untouched(r,'Trading Block','Time TBD — sources disagree (post-shift AM vs evening). Confirm window.')&&r.tbd===true&&r.durPlan===75;});
+  if(legacyTrading)replaceLegacy(legacyTrading,templates[4]);
+  if(!state.routines.some(function(r){return r.category==='recovery';}))add(templates[3]);
+  if(!state.routines.some(function(r){return r.category==='sleep';}))templates.slice(5).forEach(add);
+  return Promise.all(ops).then(function(){return setSetting('scheduleVersion',SCHEDULE_VERSION);});
+}
+
+/* ================================================================
+   SEED DATA  (first run only)
    ================================================================ */
 function seed(){
   var ops=[];
   function R(o){o.id=o.id||uid();ops.push(repoPut('routines',o));state.routines.push(o);}
   function H(o){o.id=o.id||uid();ops.push(repoPut('healthItems',o));state.healthItems.push(o);}
-  // 1) LOCKED overnight work — Mon–Fri nights 9:00 PM -> 5:00 AM (crosses midnight)
-  R({category:'work',title:'Overnight Work Shift',short:'WORK',recur:'weekly',weekdays:[1,2,3,4,5],
-     start:'21:00',end:'05:00',crosses:true,effectiveFrom:'2026-08-01',
-     notes:'LOCKED schedule. Shift starts the listed night and ends 5:00 AM next day.'});
-  // 2) Workout — clearly supported several days; exact clock time contradictory -> TBD
-  R({category:'workout',title:'Workout / Stretch',short:'GYM',recur:'weekly',weekdays:[1,3,5],
-     durPlan:55,tbd:true,effectiveFrom:'2026-08-01',
-     notes:'Time TBD — weekly notes conflict with overnight framing. Confirm start time.'});
-  // 3) Trading block — present but time TBD (day vs night framing conflict)
-  R({category:'trading',title:'Trading Block',short:'TRADE',recur:'weekly',weekdays:[1,2,3,4,5],
-     durPlan:75,tbd:true,effectiveFrom:'2026-08-01',
-     notes:'Time TBD — sources disagree (post-shift AM vs evening). Confirm window.'});
-  // 4) Health item DEFINITIONS from build queue §14 (NO scheduled times — TBD)
+  scheduleRulesV2().forEach(R);
+  // Health item definitions remain unscheduled until their times are confirmed.
   H({name:'Hair Softgel',type:'supplement',dose:'x1 softgel',notes:'Full multivitamin/mineral softgel. Ingredient breakdown to be filled from label.',ingredients:[]});
   H({name:'AM-02 Energy + Focus',type:'supplement',dose:'x1',notes:'Ginseng root + B vitamins. No mg breakdown supplied yet.',ingredients:[]});
   H({name:'Creatine (Con-Cret)',type:'supplement',dose:'1 capsule · 750 mg',ingredients:[{name:'Creatine HCl',amount:750,unit:'mg'}]});
@@ -1619,7 +1687,9 @@ function seed(){
   H({name:'Boron',type:'supplement',dose:'0.50 mL',ingredients:[
      {name:'Boron',amount:2.4,unit:'mg'},{name:'Magnesium',amount:10,unit:'mg'},{name:'Chloride',amount:26,unit:'mg'},{name:'Trace minerals',amount:140,unit:'mg'}]});
   H({name:'Adderall XR',type:'prescription',dose:'2.5–5.0 mg (TBD — confirm)',notes:'Dose references 2.5 mg and 5.0 mg. Timing NEEDS USER CONFIRMATION (sources conflict).',ingredients:[]});
-  state.settings.seeded=true;ops.push(repoPut('settings',{key:'seeded',value:true}));
+  state.settings.seeded=true;state.settings.scheduleVersion=SCHEDULE_VERSION;
+  ops.push(repoPut('settings',{key:'seeded',value:true}));
+  ops.push(repoPut('settings',{key:'scheduleVersion',value:SCHEDULE_VERSION}));
   return Promise.all(ops);
 }
 
@@ -1897,6 +1967,16 @@ function selfTest(){
   A('overnight work 9pm-5am = 480m', durMin('21:00','05:00',true)===480);
   A('sleep 23:30-07:20 crosses = 470m', durMin('23:30','07:20',true)===470);
   A('same-day 07:00-08:15 = 75m', durMin('07:00','08:15',false)===75);
+  var dayBlock={date:'2026-08-17',start:'09:00',end:'17:00',crosses:false,dur:480};
+  A('elapsed block before start = 0m',autoElapsedDur(dayBlock,new Date(2026,7,17,8,30))===0);
+  A('elapsed block advances minute by minute',autoElapsedDur(dayBlock,new Date(2026,7,17,13,30))===270);
+  A('elapsed block caps at plan',autoElapsedDur(dayBlock,new Date(2026,7,17,18,0))===480);
+  var nightBlock={date:'2026-08-17',start:'21:00',end:'04:15',crosses:true,dur:435};
+  A('overnight elapsed follows next day',autoElapsedDur(nightBlock,new Date(2026,7,18,1,0))===240);
+  A('manual not-done overrides auto',trackedDur(Object.assign({},dayBlock,{actual:{completed:false,durationMin:480}}),new Date(2026,7,17,18,0))===0);
+  A('manual duration overrides plan',trackedDur(Object.assign({},dayBlock,{actual:{completed:true,durationMin:300}}),new Date(2026,7,17,18,0))===300);
+  var sr=scheduleRulesV2();
+  A('all primary trackers have timed rules',['work','sleep','workout','recovery','trading'].every(function(cat){return sr.some(function(r){return r.category===cat&&r.start&&r.end&&!r.tbd;});}));
   A('addDays month boundary', addDays('2026-08-31',1)==='2026-09-01');
   A('addDays year boundary', addDays('2026-12-31',1)==='2027-01-01');
   A('leap day exists', addDays('2028-02-28',1)==='2028-02-29');
@@ -1921,6 +2001,15 @@ window.__life.selfTest=selfTest;
 /* ================================================================
    WIRE UP + BOOT
    ================================================================ */
+function refreshTimeTracking(){
+  if(document.visibilityState==='hidden')return;
+  if(ui.view==='quarters'){renderQuarters();return;}
+  if(ui.view!=='home')return;
+  if(ui.homeTab==='calendar'){
+    renderToday();
+    var cb=$('#calSummaryBody');if(cb){cb.innerHTML='';reportSummary(cb);}
+  }else syncHomeReport();
+}
 function wire(){
   $$('#nav button').forEach(function(b){b.addEventListener('click',function(){showView(b.dataset.view);});});
   var _gsb=$('#ghSaveBtn');if(_gsb){_gsb.addEventListener('click',ghSave);if(ghOn()){_gsb.style.display='';ghStatus('connected');}}
@@ -1943,10 +2032,15 @@ function wire(){
   var n=new Date();$('#miniTime').textContent=pad(n.getHours())+':'+pad(n.getMinutes());$('#miniDate').textContent=DOW[n.getDay()]+' '+n.getDate()+' '+MONA[n.getMonth()]+' '+n.getFullYear();
   // refresh celestial panels hourly
   setInterval(function(){if(ui.view==='home')renderCelestial();},60000);
+  // keep elapsed time and all tracker cards moving without a page reload
+  setInterval(refreshTimeTracking,60000);
+  document.addEventListener('visibilitychange',refreshTimeTracking);
 }
 function boot(){
   openDB().then(loadAll).then(function(){
     if(!state.settings.seeded)return seed().then(loadAll);
+  }).then(function(){
+    return ensureScheduleV2().then(loadAll);
   }).then(function(){
     buildClock();planetary.init();wire();
     var last=state.settings.lastTab||'home';
