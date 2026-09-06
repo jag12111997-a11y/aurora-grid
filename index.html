@@ -1071,7 +1071,8 @@ function deleteOccurrence(o){
   confirmModal('Remove from schedule',o.title+' · '+parseYmd(o.date).getDate()+' '+MONA[parseYmd(o.date).getMonth()],
     'This comes from a recurring routine. History is preserved either way.',[
     {label:'JUST THIS DAY',cls:'',fn:function(){addSkip(o);}},
-    {label:'END SERIES HERE',cls:'danger',fn:function(){endSeries(o);}}
+    {label:'END SERIES HERE',cls:'danger',fn:function(){endSeries(o);}},
+    {label:'DELETE FOREVER',cls:'danger',fn:function(){var store=o.isEvent?'events':'routines';remove(store,o.refId,true).then(afterMutate);toast('ROUTINE DELETED');}}
   ]);
 }
 function addSkip(o){var ov={id:uid(),routineId:o.refId,date:o.date,type:'skip'};
@@ -1108,7 +1109,8 @@ function renderMonth(){
         el('span',{text:o.short}),
         el('span',{class:'x',title:'remove',onclick:function(ev){ev.stopPropagation();deleteOccurrence(o);}},['×'])
       ]);
-      if(!o.isEvent)chip.style.background='#1a0a3a';
+      var realm=catRealm(o.category,o.realm);
+      chip.style.background=realm==='ether'?'#1a1040':'#2a0a28';
       chip.style.color=realmColor(o.category,o.realm);
       chip.style.borderLeft='2px solid '+realmColor(o.category,o.realm);
       cell.appendChild(chip);
@@ -1293,15 +1295,19 @@ function openRecategorizeModal(o){
   var src=state.routines.find(function(x){return x.id===o.refId;})||state.events.find(function(x){return x.id===o.refId;});
   if(!src){toast('SOURCE NOT FOUND');return;}
   var cat=catSelect(src.category);
+  var realm=realmSelect(src.realm||'');
+  var realmRow=fld('Ether / Reality',realm);
   openModal(el('div',{},[
     el('h3',{text:'RE-CATEGORIZE'}),
-    el('div',{class:'hint',style:'margin-bottom:8px'},['Change the category for "'+src.title+'". This updates all future occurrences.']),
+    el('div',{class:'hint',style:'margin-bottom:8px'},['Change the category or realm for "'+src.title+'". This updates all future occurrences.']),
     fld('New category',cat),
+    realmRow,
     el('div',{class:'modal-actions'},[
       el('button',{class:'btn primary',onclick:function(){
         var before=JSON.parse(JSON.stringify(src));
         src.category=cat.value;
         src.short=CATS[cat.value].short;
+        src.realm=realm.value||undefined;
         var store=o.isEvent?'events':'routines';
         audit('edit',store,before,src);
         repoPut(store,src).then(function(){closeModal();renderHome();toast('CATEGORY UPDATED');});
@@ -1408,7 +1414,7 @@ function reportSummary(body){
   R.items.forEach(function(o){if(o.category==='workout'){
     types[o.title]=(types[o.title]||0)+(isCompleted(o)?1:0);
     var dur=trackedDur(o);
-    if(dur>0||isCompleted(o)){wkDetails.push([o.date+' · '+o.title,fmtDur(dur)+(o.actual&&o.actual.notes?' — '+o.actual.notes:'')]);}
+    if(dur>0||isCompleted(o)){var detail=fmtDur(dur);if(o.actual&&o.actual.workoutType)detail+=' · '+o.actual.workoutType;if(o.actual&&o.actual.workoutSets)detail+=' · '+o.actual.workoutSets;if(o.actual&&o.actual.notes)detail+=' — '+o.actual.notes;wkDetails.push([o.date+' · '+o.title,detail]);}
   }});
   var wkLines=[['Completed hrs',fmtHrs(wk.comp)+'h'],['Planned',wk.n+' sessions'],['Types',Object.keys(types).join(', ')||'—']];
   wkDetails.forEach(function(d){wkLines.push(d);});
@@ -1456,11 +1462,15 @@ function reportHealth(body){
 
   /* ---- Completion table ---- */
   if(anyScheduled){
+    var compToggle=el('button',{class:'btn sm ghost',style:'margin-top:16px'},['▸ SCHEDULED COMPLETION']);
+    var compWrap=el('div',{style:'display:none;margin-top:8px'});
+    compToggle.addEventListener('click',function(){var v=compWrap.style.display==='none';compWrap.style.display=v?'':'none';compToggle.textContent=v?'▾ SCHEDULED COMPLETION':'▸ SCHEDULED COMPLETION';});
     var t=el('table');t.appendChild(el('tr',{},[el('th',{text:'ITEM'}),el('th',{text:'CATEGORY'}),el('th',{text:'SCHEDULED'}),el('th',{text:'COMPLETED'})]));
     var byItem={};supp.forEach(function(o){var k=o.title;byItem[k]=byItem[k]||{cat:o.category,n:0,done:0};byItem[k].n++;if(isCompleted(o))byItem[k].done++;});
     Object.keys(byItem).forEach(function(k){var v=byItem[k];
       t.appendChild(el('tr',{},[el('td',{text:k}),el('td',{text:CATS[v.cat].label}),el('td',{text:String(v.n)}),el('td',{text:v.done+' / '+v.n})]));});
-    wrap.appendChild(el('h3',{style:'letter-spacing:2px;color:var(--green);margin-top:16px',text:'SCHEDULED COMPLETION'}));wrap.appendChild(t);
+    compWrap.appendChild(t);
+    wrap.appendChild(compToggle);wrap.appendChild(compWrap);
   }
 
   /* ---- Daily log breakdown for the range ---- */
@@ -1482,12 +1492,15 @@ function reportHealth(body){
   }
 
   /* ---- Vitamin/mineral totals ---- */
-  wrap.appendChild(el('h3',{style:'letter-spacing:2px;color:var(--green);margin-top:16px',text:'VITAMIN / MINERAL TOTALS (completed + logged)'}));
+  var vtToggle=el('button',{class:'btn sm ghost',style:'margin-top:16px'},['▸ VITAMIN / MINERAL TOTALS']);
+  var vtWrap=el('div',{style:'display:none;margin-top:8px'});
+  vtToggle.addEventListener('click',function(){var v=vtWrap.style.display==='none';vtWrap.style.display=v?'':'none';vtToggle.textContent=v?'▾ VITAMIN / MINERAL TOTALS':'▸ VITAMIN / MINERAL TOTALS';});
   var vt=el('table');vt.appendChild(el('tr',{},[el('th',{text:'NUTRIENT'}),el('th',{text:'TOTAL THIS RANGE'})]));
   var keys=Object.keys(totals);
   if(!keys.length)vt.appendChild(el('tr',{},[el('td',{colspan:'2',html:'<span class="mini">No completed supplement doses in this range yet.</span>'})]));
   else keys.sort().forEach(function(k){vt.appendChild(el('tr',{},[el('td',{text:k.replace(/ \(.*/,'')}),el('td',{text:totals[k].toFixed(2)+' '+(k.match(/\((.*)\)/)||[,''])[1]})]));});
-  wrap.appendChild(vt);
+  vtWrap.appendChild(vt);
+  wrap.appendChild(vtToggle);wrap.appendChild(vtWrap);
 
   /* ---- Collapsible supplement definitions ---- */
   var defToggle=el('button',{class:'btn sm ghost',style:'margin-top:16px'},['▸ SUPPLEMENT / VITAMIN DEFINITIONS']);
@@ -1895,7 +1908,11 @@ function quarterMonthAgg(y,m){
       else if(o.category==='recovery')agg.recovery+=dur;});} return agg;}
 function renderQuarters(){
   var tabs=$('#qTabs');tabs.innerHTML='';
-  [['2026-Q3','Q3 2026'],['2026-Q4','Q4 2026']].forEach(function(q){
+  var now=new Date();var curY=now.getFullYear();var curQ=Math.floor(now.getMonth()/3)+1;
+  var qList=[];for(var qi=curQ;qi<=4;qi++)qList.push([curY+'-Q'+qi,'Q'+qi+' '+curY]);
+  if(curQ>1)for(var qi2=1;qi2<curQ;qi2++)qList.push([curY+'-Q'+qi2,'Q'+qi2+' '+curY]);
+  if(!ui.qKey||qList.every(function(q){return q[0]!==ui.qKey;}))ui.qKey=qList[0][0];
+  qList.forEach(function(q){
     tabs.appendChild(el('button',{class:ui.qKey===q[0]?'on':'','data-q':q[0],text:q[1],onclick:function(){ui.qKey=q[0];renderQuarters();}}));});
   var body=$('#qBody');body.innerHTML='';
   var p=ui.qKey.split('-');var y=+p[0];var q=+p[1].slice(1);
@@ -1926,6 +1943,29 @@ function renderQuarters(){
     mg.appendChild(statCard('SLEEP',fmtHrs(a.sleepMin),'hrs',[['Avg/night',a.sleepN?fmtHrs(a.sleepMin/a.sleepN)+'h':'—']]));
     mg.appendChild(statCard('RECOVERY',fmtHrs(a.recovery),'hrs',[]));
     sec.appendChild(mg);
+    /* mini calendar for the month */
+    var miniCal=el('div',{style:'margin-top:12px'});
+    var miniDow=el('div',{class:'cal',style:'gap:3px'});
+    ['S','M','T','W','T','F','S'].forEach(function(d){miniDow.appendChild(el('div',{class:'dow',text:d,style:'font-size:9px'}));});
+    miniCal.appendChild(miniDow);
+    var miniGrid=el('div',{class:'cal',style:'gap:3px;margin-top:3px'});
+    var mFirst=new Date(y,m,1);var mPad=mFirst.getDay();
+    var mDays=new Date(y,m+1,0).getDate();
+    for(var p=0;p<mPad;p++)miniGrid.appendChild(el('div',{style:'min-height:28px'}));
+    for(var day=1;day<=mDays;day++){
+      var ds=y+'-'+pad(m+1)+'-'+pad(day);
+      var dayOcc=occurrencesFor(ds);
+      var dayDone=dayOcc.filter(function(o){return isCompleted(o);}).length;
+      var dayTotal=dayOcc.length;
+      var pctDone=dayTotal>0?dayDone/dayTotal:0;
+      var cellBg=pctDone>=0.8?'#1a2a1a':pctDone>=0.4?'#2a2a1a':'#1a0a1a';
+      var cellColor=pctDone>=0.8?'var(--green)':pctDone>=0.4?'var(--warn)':'var(--muted)';
+      var miniCell=el('div',{text:String(day),style:'min-height:28px;border:1px solid var(--line);border-radius:4px;text-align:center;font-size:10px;line-height:28px;background:'+cellBg+';color:'+cellColor});
+      if(ds===todayYmd())miniCell.style.borderColor='var(--green)';
+      miniGrid.appendChild(miniCell);
+    }
+    miniCal.appendChild(miniGrid);
+    sec.appendChild(miniCal);
     body.appendChild(sec);
   });
   body.appendChild(el('div',{class:'note',style:'margin-top:14px'},[el('b',{text:'ROLLS FORWARD '}),
