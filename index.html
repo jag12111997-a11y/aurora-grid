@@ -696,8 +696,11 @@ var REALMS={ether:{label:'ETHER',color:'#b78bf0'},reality:{label:'HUMAN EXPERIEN
 var DEFAULT_REALM={sleep:'ether',recovery:'ether',meditation:'ether',nap:'ether',
   work:'reality',workout:'reality',trading:'reality',medication:'reality',supplement:'reality',
   maintenance:'reality',social:'reality',nutrition:'reality',custom:'reality'};
-function catRealm(cat){return (state.settings.realms&&state.settings.realms[cat])||DEFAULT_REALM[cat]||'reality';}
-function realmColor(cat){return REALMS[catRealm(cat)].color;}
+function catRealm(cat,itemRealm){return itemRealm||((state.settings.realms&&state.settings.realms[cat])||DEFAULT_REALM[cat]||'reality');}
+function realmColor(cat,itemRealm){return REALMS[catRealm(cat,itemRealm)].color;}
+function realmSelect(cur){var s=el('select');['','ether','reality'].forEach(function(v){
+  var lab=v===''?'Use category default':v==='ether'?'ETHER':'HUMAN EXPERIENCE';
+  var o=el('option',{value:v,text:lab});if(cur===v)o.selected=true;s.appendChild(o);});return s;}
 var CAT_COLOR={work:'#ff2d9b',sleep:'#4a8aff',nap:'#4a8aff',workout:'#ffd24a',recovery:'#b78bf0',
   trading:'#ff8a3a',medication:'#ff5a8a',supplement:'#ffb0d8',maintenance:'#8860a8',
   social:'#ff5ac8',nutrition:'#c8ff5a',custom:'#4a8aff',holiday:'#ffd24a'};
@@ -871,7 +874,7 @@ function occurrencesFor(dstr){
     if(ov&&ov.type==='skip')return;
     var occ={
       key:r.id+':'+dstr, refId:r.id, date:dstr, isEvent:!!isEvent,
-      category:r.category, title:r.title, short:r.short||CATS[r.category].short,
+      category:r.category, realm:r.realm||undefined, title:r.title, short:r.short||CATS[r.category].short,
       start:r.start||'', end:r.end||'', crosses:!!r.crosses,
       dur:r.durPlan!=null?r.durPlan:durMin(r.start,r.end,r.crosses),
       tbd:!!r.tbd, notes:r.notes||'', health:r.health||null, overridden:false
@@ -996,7 +999,7 @@ function renderToday(){
   occ.forEach(function(o){list.appendChild(todayItem(o));});
 }
 function todayItem(o){
-  var color=realmColor(o.category);
+  var color=realmColor(o.category,o.realm);
   var catCol=CAT_COLOR[o.category]||'#ff2d9b';
   var done=isCompleted(o);
   var timeStr = o.start?(fmtTime(o.start)+(o.end?' – '+fmtTime(o.end):'')):(o.tbd?'TBD':'');
@@ -1106,8 +1109,8 @@ function renderMonth(){
         el('span',{class:'x',title:'remove',onclick:function(ev){ev.stopPropagation();deleteOccurrence(o);}},['×'])
       ]);
       if(!o.isEvent)chip.style.background='#1a0a3a';
-      chip.style.color=realmColor(o.category);
-      chip.style.borderLeft='2px solid '+realmColor(o.category);
+      chip.style.color=realmColor(o.category,o.realm);
+      chip.style.borderLeft='2px solid '+realmColor(o.category,o.realm);
       cell.appendChild(chip);
     });
     if(occ.length>shown)cell.appendChild(el('div',{class:'more',text:'+'+(occ.length-shown)+' more'}));
@@ -1185,10 +1188,15 @@ function openEventModal(opts){
     customF.style.display=v==='custom'?'':'none';
     onceRow.style.display=(v==='once'||v==='custom')?'':'none';}
   recur.addEventListener('change',syncRecur);
+  var realm=realmSelect(opts.realm||'');
+  var realmRow=fld('Ether / Reality',realm);
+  realmRow.style.display=cat.value==='custom'?'':'none';
+  cat.addEventListener('change',function(){realmRow.style.display=cat.value==='custom'?'':'none';});
   var form=el('div',{},[
     el('h3',{text:opts.heading||'ADD EVENT'}),
     fld('Full title',title),
     el('div',{class:'fld two'},[el('div',{},[el('label',{text:'Short label (calendar)'}),short]),el('div',{},[el('label',{text:'Category'}),cat])]),
+    realmRow,
     el('div',{class:'fld two'},[el('div',{},[el('label',{text:'Start (optional)'}),start]),el('div',{},[el('label',{text:'End (optional — leave blank for open-ended)'}),end])]),
     fld('Repeat',recur), onceRow, weeklyF, monthlyF, customF,
     fld('Notes',notes),
@@ -1196,7 +1204,7 @@ function openEventModal(opts){
       el('button',{class:'btn primary',onclick:function(){
         if(!title.value.trim()){toast('TITLE REQUIRED');return;}
         var rec={id:uid(),title:title.value.trim(),short:(short.value.trim()||title.value.trim().slice(0,6)).toUpperCase(),
-          category:cat.value,start:start.value,end:end.value,crosses:end.value&&start.value&&toMin(end.value)<=toMin(start.value),
+          category:cat.value,realm:realm.value||undefined,start:start.value,end:end.value,crosses:end.value&&start.value&&toMin(end.value)<=toMin(start.value),
           recur:recur.value,notes:notes.value.trim(),effectiveFrom:date.value||ui.selDate};
         if(recur.value==='once'){rec.date=date.value||ui.selDate;put('events',rec,true);}
         else if(recur.value==='weekly'){rec.weekdays=wdBoxes.map(function(c,i){return c.checked?i:-1;}).filter(function(x){return x>=0;});
@@ -1519,10 +1527,15 @@ function openRoutineModal(r,isNew){
     monthlyF.style.display=v==='monthly'?'':'none';
     customF.style.display=v==='custom'?'':'none';}
   recur.addEventListener('change',syncRecur);
+  var realm=realmSelect(r.realm||'');
+  var realmRow=fld('Ether / Reality',realm);
+  realmRow.style.display=cat.value==='custom'?'':'none';
+  cat.addEventListener('change',function(){realmRow.style.display=cat.value==='custom'?'':'none';});
   var form=el('div',{},[
     el('h3',{text:isNew?'NEW ROUTINE':'EDIT ROUTINE'}),
     fld('Full title',title),
     el('div',{class:'fld two'},[el('div',{},[el('label',{text:'Short label (calendar)'}),short]),el('div',{},[el('label',{text:'Category'}),cat])]),
+    realmRow,
     el('div',{class:'fld two'},[el('div',{},[el('label',{text:'Start (optional)'}),start]),el('div',{},[el('label',{text:'End (optional — blank = open-ended)'}),end])]),
     el('div',{class:'fld'},[tbdLab]),
     fld('Repeat',recur), weeklyF, monthlyF, customF,
@@ -1536,6 +1549,7 @@ function openRoutineModal(r,isNew){
         r.title=title.value.trim();
         r.short=(short.value.trim()||r.title.slice(0,6)).toUpperCase();
         r.category=cat.value;
+        r.realm=realm.value||undefined;
         r.tbd=tbd.checked;
         r.start=tbd.checked?'':start.value;
         r.end=tbd.checked?'':end.value;
