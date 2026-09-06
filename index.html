@@ -222,6 +222,7 @@
   <nav id="nav">
     <button data-view="home" class="on">HOME</button>
     <button data-view="quarters">QUARTERS</button>
+    <button data-view="wealth">WEALTH</button>
   </nav>
   <div class="clock-mini"><button id="ghSaveBtn" class="btn sm primary" style="display:none;margin-right:10px">\u2601 SAVE</button><span id="ghDot" title="github sync" style="display:none;width:8px;height:8px;border-radius:50%;background:#8860a8;margin-right:8px;vertical-align:middle"></span><b id="miniTime">--:--</b><div id="miniDate">—</div></div>
 </header>
@@ -298,10 +299,13 @@
     </div>
 
     <div class="panel" id="calSummaryPanel" style="margin-top:16px">
-      <h2>SUMMARY <span class="sub">completed this range</span>
+      <h2>SUMMARY <span class="sub" id="summaryRangeLabel">completed this range</span>
         <span class="spacer"></span>
+        <button class="btn sm" id="summPrev" title="Previous">‹</button>
         <button class="btn sm on" data-csrange="week">THIS WEEK</button>
         <button class="btn sm" data-csrange="month">THIS MONTH</button>
+        <button class="btn sm" id="summNext" title="Next">›</button>
+        <button class="btn sm" id="summNow" title="Current">NOW</button>
       </h2>
       <div id="calSummaryBody"></div>
     </div>
@@ -364,6 +368,11 @@
   <section class="view" id="view-quarters">
     <div class="tabs2" id="qTabs"></div>
     <div id="qBody"></div>
+  </section>
+
+  <!-- ============ WEALTH ============ -->
+  <section class="view" id="view-wealth">
+    <div id="wBody"></div>
   </section>
 </main>
 
@@ -681,6 +690,14 @@ var CATS={
   maintenance:{label:'MAINTENANCE',short:'CARE'}, social:{label:'SOCIAL',short:'DATE'},
   nutrition:{label:'NUTRITION',short:'FUEL'}, custom:{label:'CUSTOM',short:'EVENT'}
 };
+/* REALM system: ether (inner/spiritual) vs reality (practical/lived) */
+var REALMS={ether:{label:'ETHER',color:'#b78bf0'},reality:{label:'HUMAN EXPERIENCE',color:'#ff2d9b'}};
+/* Default realm assignments — user can re-assign per category via settings */
+var DEFAULT_REALM={sleep:'ether',recovery:'ether',meditation:'ether',nap:'ether',
+  work:'reality',workout:'reality',trading:'reality',medication:'reality',supplement:'reality',
+  maintenance:'reality',social:'reality',nutrition:'reality',custom:'reality'};
+function catRealm(cat){return (state.settings.realms&&state.settings.realms[cat])||DEFAULT_REALM[cat]||'reality';}
+function realmColor(cat){return REALMS[catRealm(cat)].color;}
 var CAT_COLOR={work:'#ff2d9b',sleep:'#4a8aff',nap:'#4a8aff',workout:'#ffd24a',recovery:'#b78bf0',
   trading:'#ff8a3a',medication:'#ff5a8a',supplement:'#ffb0d8',maintenance:'#8860a8',
   social:'#ff5ac8',nutrition:'#c8ff5a',custom:'#4a8aff',holiday:'#ffd24a'};
@@ -689,9 +706,9 @@ var CAT_COLOR={work:'#ff2d9b',sleep:'#4a8aff',nap:'#4a8aff',workout:'#ffd24a',re
    DATA LAYER  —  IndexedDB with a thin repository abstraction.
    Everything loads into `state` on boot; writes persist per-record.
    ================================================================ */
-var DB_NAME='omani_life_os', DB_VER=1;
-var STORES=['routines','overrides','events','actuals','healthItems','settings','audit'];
-var DATA_STORES=['routines','overrides','events','actuals','healthItems','audit'];
+var DB_NAME='omani_life_os', DB_VER=2;
+var STORES=['routines','overrides','events','actuals','healthItems','wealthItems','settings','audit'];
+var DATA_STORES=['routines','overrides','events','actuals','healthItems','wealthItems','audit'];
 var db=null;
 function openDB(){return new Promise(function(res,rej){
   var rq=indexedDB.open(DB_NAME,DB_VER);
@@ -711,7 +728,7 @@ function repoClear(store){return new Promise(function(res,rej){var r=tx(store,'r
   r.onsuccess=function(){if(!_ghApplying&&store!=='settings')ghMarkDirty();res();};r.onerror=function(){rej(r.error);};});}
 
 /* in-memory mirror */
-var state={routines:[],overrides:[],events:[],actuals:[],healthItems:[],audit:[],settings:{}};
+var state={routines:[],overrides:[],events:[],actuals:[],healthItems:[],wealthItems:[],audit:[],settings:{}};
 function loadAll(){return Promise.all(STORES.map(function(s){return repoAll(s).then(function(rows){
   if(s==='settings'){state.settings={};rows.forEach(function(r){state.settings[r.key]=r.value;});}
   else state[s]=rows;});}));}
@@ -921,14 +938,14 @@ function holidayOn(dstr){var y=+dstr.slice(0,4);return holidaysFor(y)[dstr]||nul
    UI STATE + ROUTER
    ================================================================ */
 var ui={view:'home', selDate:todayYmd(), calY:new Date().getFullYear(), calM:new Date().getMonth(),
-        homeTab:'calendar', rTab:'summary', rRange:'week', qKey:'2026-Q3'};
+        homeTab:'calendar', rTab:'summary', rRange:'week', qKey:'2026-Q3', weekOffset:0, monthOffset:0};
 
 function showView(v){ui.view=v;
   $$('#nav button').forEach(function(b){b.classList.toggle('on',b.dataset.view===v);});
   $$('.view').forEach(function(s){s.classList.toggle('on',s.id==='view-'+v);});
   setSetting('lastTab',v);
   if(v==='home'){renderHome();if(planetary&&planetary.ready())setTimeout(planetary.redraw,30);}
-  else if(v==='reports')renderReports();else if(v==='quarters')renderQuarters();}
+  else if(v==='reports')renderReports();else if(v==='quarters')renderQuarters();else if(v==='wealth')renderWealth();}
 
 function toast(msg){var t=$('#toast');t.textContent=msg;t.classList.add('on');
   clearTimeout(toast._t);toast._t=setTimeout(function(){t.classList.remove('on');},1900);}
@@ -943,6 +960,7 @@ function renderHome(){
     cal.style.display='';rep.style.display='none';
     renderToday();renderMonth();renderCelestial();
     $$('#calSummaryPanel button[data-csrange]').forEach(function(b){b.classList.toggle('on',b.dataset.csrange===ui.rRange);});
+    var slbl=$('#summaryRangeLabel');if(slbl)slbl.textContent=rangeLabel();
     var cb=$('#calSummaryBody');if(cb){cb.innerHTML='';reportSummary(cb);}
     if(window.planetary&&planetary.ready())setTimeout(planetary.redraw,30);
   }else{
@@ -978,16 +996,20 @@ function renderToday(){
   occ.forEach(function(o){list.appendChild(todayItem(o));});
 }
 function todayItem(o){
-  var color=CAT_COLOR[o.category]||'#ff2d9b';
+  var color=realmColor(o.category);
+  var catCol=CAT_COLOR[o.category]||'#ff2d9b';
   var done=isCompleted(o);
   var timeStr = o.start?(fmtTime(o.start)+(o.end?' – '+fmtTime(o.end):'')):(o.tbd?'TBD':'');
+  var realmTag=el('span',{class:'pill',text:catRealm(o.category)==='ether'?'ETHER':'REALITY'});
+  realmTag.style.color=color;realmTag.style.borderColor=color;
   var head=el('div',{class:'ihead'},[
     el('span',{class:'cat',text:o.short}),
     el('span',{class:'ttl',text:o.title}),
+    realmTag,
     o.overridden?el('span',{class:'pill',text:'OVERRIDE'}):null,
     el('span',{class:'tm',text:timeStr})
   ]);
-  head.querySelector('.cat').style.color=color;
+  head.querySelector('.cat').style.color=catCol;
   var kv=el('div',{class:'kv'});
   if(o.start||o.end)kv.appendChild(el('span',{html:'Planned <b>'+ (o.start?fmtTime(o.start):'—')+(o.end?' – '+fmtTime(o.end):'')+'</b>'}));
   if(o.dur!=null)kv.appendChild(el('span',{html:'Duration <b>'+fmtDur(o.dur)+'</b>'}));
@@ -1003,6 +1025,8 @@ function todayItem(o){
     if(a.durationMin!=null)kv.appendChild(el('span',{html:'Actual dur <b>'+fmtDur(a.durationMin)+'</b>'}));
     if(a.actualDose)kv.appendChild(el('span',{html:'Took <b>'+a.actualDose+'</b>'}));
     if(a.completed)kv.appendChild(el('span',{class:'badge done',text:'✓ DONE'}));
+    if(a.workoutType)kv.appendChild(el('span',{html:'Type: <b>'+a.workoutType+'</b>'}));
+    if(a.workoutSets)kv.appendChild(el('span',{html:'Sets: <b>'+a.workoutSets+'</b>'}));
     if(a.notes)kv.appendChild(el('span',{html:'Note: '+a.notes}));
   }else{
     var elapsed=trackedDur(o);
@@ -1011,12 +1035,14 @@ function todayItem(o){
   var body=el('div',{class:'body'},[kv, el('div',{class:'row'},[
     el('button',{class:'btn sm',onclick:function(ev){ev.stopPropagation();openLogModal(o);}},[o.actual?'EDIT ACTUAL':'LOG ACTUAL']),
     el('button',{class:'btn sm',onclick:function(ev){ev.stopPropagation();quickComplete(o);}},[done?((o.category==='medication'||o.category==='supplement')?'MARK NOT TAKEN':'MARK NOT DONE'):((o.category==='medication'||o.category==='supplement')?'MARK TAKEN':'MARK DONE')]),
+    el('button',{class:'btn sm ghost',onclick:function(ev){ev.stopPropagation();openRecategorizeModal(o);}},['RE-CATEGORIZE']),
     !o.isEvent?el('button',{class:'btn sm ghost',onclick:function(ev){ev.stopPropagation();openOverrideModal(o);}},['OVERRIDE DAY']):null,
     el('span',{class:'spacer'}),
     el('button',{class:'btn sm danger',onclick:function(ev){ev.stopPropagation();deleteOccurrence(o);}},['REMOVE'])
   ])]);
   var item=el('div',{class:'item'+(done?' done':'')},[head,body]);
   item.style.borderLeftColor=color;
+  item.style.boxShadow='inset 3px 0 8px -4px '+color+'44';
   head.addEventListener('click',function(){item.classList.toggle('open');});
   return item;
 }
@@ -1080,7 +1106,8 @@ function renderMonth(){
         el('span',{class:'x',title:'remove',onclick:function(ev){ev.stopPropagation();deleteOccurrence(o);}},['×'])
       ]);
       if(!o.isEvent)chip.style.background='#1a0a3a';
-      chip.style.color=CAT_COLOR[o.category]||'#ffb0d8';
+      chip.style.color=realmColor(o.category);
+      chip.style.borderLeft='2px solid '+realmColor(o.category);
       cell.appendChild(chip);
     });
     if(occ.length>shown)cell.appendChild(el('div',{class:'more',text:'+'+(occ.length-shown)+' more'}));
@@ -1162,7 +1189,7 @@ function openEventModal(opts){
     el('h3',{text:opts.heading||'ADD EVENT'}),
     fld('Full title',title),
     el('div',{class:'fld two'},[el('div',{},[el('label',{text:'Short label (calendar)'}),short]),el('div',{},[el('label',{text:'Category'}),cat])]),
-    el('div',{class:'fld two'},[el('div',{},[el('label',{text:'Start (optional)'}),start]),el('div',{},[el('label',{text:'End (optional)'}),end])]),
+    el('div',{class:'fld two'},[el('div',{},[el('label',{text:'Start (optional)'}),start]),el('div',{},[el('label',{text:'End (optional — leave blank for open-ended)'}),end])]),
     fld('Repeat',recur), onceRow, weeklyF, monthlyF, customF,
     fld('Notes',notes),
     el('div',{class:'modal-actions'},[
@@ -1199,10 +1226,14 @@ function openLogModal(o){
   var notes=el('textarea',{rows:'2',value:a.notes||''});
   var fields=[el('h3',{text:'LOG ACTUAL · '+o.title})];
   fields.push(el('div',{class:'hint',style:'margin-bottom:8px'},['Planned: '+(o.start?fmtTime(o.start)+(o.end?' – '+fmtTime(o.end):''):(o.tbd?'TBD':'—'))+(o.dur!=null?' ('+fmtDur(o.dur)+')':'')+'. Saving creates a one-day actual record; RESTORE AUTO removes it and resumes schedule tracking.']));
+  var isWorkout=o.category==='workout';
+  var workoutType=el('input',{type:'text',value:a.workoutType||'',placeholder:'e.g. Upper body, Cardio, Stretch'});
+  var workoutSets=el('input',{type:'text',value:a.workoutSets||'',placeholder:'e.g. 4x12 bench, 3x10 rows'});
   if(health){fields.push(fld('Actual dose taken',dose));}
   else{
     fields.push(el('div',{class:'fld two'},[el('div',{},[el('label',{text:'Actual start'}),start]),el('div',{},[el('label',{text:'Actual end'}),end])]));
     fields.push(fld('Actual hours (optional — overrides the times above)',hours));
+    if(isWorkout){fields.push(fld('Workout type',workoutType));fields.push(fld('Sets / exercises (optional)',workoutSets));}
   }
   fields.push(el('div',{class:'fld'},[doneLab]));
   fields.push(fld('Notes',notes));
@@ -1214,7 +1245,8 @@ function openLogModal(o){
       if(health){rec.actualDose=dose.value.trim();}
       else{rec.actualStart=start.value;rec.actualEnd=end.value;
         rec.durationMin=hours.value!==''?Math.round(+hours.value*60):
-          ((start.value&&end.value)?durMin(start.value,end.value,toMin(end.value)<=toMin(start.value)):(o.dur!=null?o.dur:null));}
+          ((start.value&&end.value)?durMin(start.value,end.value,toMin(end.value)<=toMin(start.value)):(o.dur!=null?o.dur:null));
+        if(isWorkout){rec.workoutType=workoutType.value.trim();rec.workoutSets=workoutSets.value.trim();}}
       rec.completed=done.checked;rec.manual=true;rec.notes=notes.value.trim();
       put('actuals',rec,true).then(function(){closeModal();renderHome();toast('ACTUAL SAVED');});
     }},['SAVE']),
@@ -1248,15 +1280,51 @@ function openOverrideModal(o){
   ]));
 }
 
+/* re-categorize an item's source routine or event */
+function openRecategorizeModal(o){
+  var src=state.routines.find(function(x){return x.id===o.refId;})||state.events.find(function(x){return x.id===o.refId;});
+  if(!src){toast('SOURCE NOT FOUND');return;}
+  var cat=catSelect(src.category);
+  openModal(el('div',{},[
+    el('h3',{text:'RE-CATEGORIZE'}),
+    el('div',{class:'hint',style:'margin-bottom:8px'},['Change the category for "'+src.title+'". This updates all future occurrences.']),
+    fld('New category',cat),
+    el('div',{class:'modal-actions'},[
+      el('button',{class:'btn primary',onclick:function(){
+        var before=JSON.parse(JSON.stringify(src));
+        src.category=cat.value;
+        src.short=CATS[cat.value].short;
+        var store=o.isEvent?'events':'routines';
+        audit('edit',store,before,src);
+        repoPut(store,src).then(function(){closeModal();renderHome();toast('CATEGORY UPDATED');});
+      }},['SAVE']),
+      el('button',{class:'btn ghost',onclick:closeModal},['CANCEL'])
+    ])
+  ]));
+}
+
 /* ================================================================
    REPORTS
    ================================================================ */
 function rangeDays(){
   var days=[];
-  if(ui.rRange==='week'){var sun=weekStartSunday(todayYmd());
+  if(ui.rRange==='week'){var sun=weekStartSunday(todayYmd());sun=addDays(sun,ui.weekOffset*7);
     for(var i=0;i<7;i++)days.push(addDays(sun,i));}
-  else{var y=ui.calY,m=ui.calM;var n=new Date(y,m+1,0).getDate();for(var j=1;j<=n;j++)days.push(y+'-'+pad(m+1)+'-'+pad(j));}
+  else{var d=new Date(ui.calY,ui.calM+ui.monthOffset,1);var y=d.getFullYear(),m=d.getMonth();
+    var n=new Date(y,m+1,0).getDate();for(var j=1;j<=n;j++)days.push(y+'-'+pad(m+1)+'-'+pad(j));}
   return days;}
+function rangeLabel(){
+  if(ui.rRange==='week'){
+    var days=rangeDays();
+    if(ui.weekOffset===0)return '(this week, Sun–Sat)';
+    var start=parseYmd(days[0]),end=parseYmd(days[6]);
+    return start.getDate()+' '+MONA[start.getMonth()]+' – '+end.getDate()+' '+MONA[end.getMonth()]+' '+end.getFullYear();
+  }else{
+    var d=new Date(ui.calY,ui.calM+ui.monthOffset,1);
+    if(ui.monthOffset===0)return '('+MON[ui.calM]+' '+ui.calY+')';
+    return MON[d.getMonth()]+' '+d.getFullYear();
+  }
+}
 function collectRange(){
   var days=rangeDays();var items=[];
   days.forEach(function(ds){occurrencesFor(ds).forEach(function(o){items.push(o);});});
@@ -1296,7 +1364,7 @@ function trackedDur(o,now){
   return autoElapsedDur(o,now);
 }
 function renderReports(){
-  $('#rRangeLabel').textContent = ui.rRange==='week'?'(current week, Sun–Sat)':'('+MON[ui.calM]+' '+ui.calY+')';
+  $('#rRangeLabel').textContent = rangeLabel();
   $$('#rRangeBar button').forEach(function(b){b.classList.toggle('on',b.dataset.range===ui.rRange);});
   $$('#rTabs button').forEach(function(b){b.classList.toggle('on',b.dataset.r===ui.rTab);});
   var body=$('#rBody');body.innerHTML='';
@@ -1328,9 +1396,15 @@ function reportSummary(body){
   grid.appendChild(statCard('SLEEP',fmtHrs(sleep.comp),'hrs',[
     ['Avg / night',fmtHrs(sleep.comp/sleepDays)+'h'],['Naps',nap.n],['Planned',fmtHrs(sleep.plan)+'h']]));
   var wk=sumCat('workout');
-  var types={};R.items.forEach(function(o){if(o.category==='workout'&&isCompleted(o))types[o.title]=(types[o.title]||0)+1;});
-  grid.appendChild(statCard('WORKOUT',wk.compN,'sessions',[
-    ['Completed hrs',fmtHrs(wk.comp)+'h'],['Planned',wk.n+' sessions'],['Types',Object.keys(types).join(', ')||'—']]));
+  var types={};var wkDetails=[];
+  R.items.forEach(function(o){if(o.category==='workout'){
+    types[o.title]=(types[o.title]||0)+(isCompleted(o)?1:0);
+    var dur=trackedDur(o);
+    if(dur>0||isCompleted(o)){wkDetails.push([o.date+' · '+o.title,fmtDur(dur)+(o.actual&&o.actual.notes?' — '+o.actual.notes:'')]);}
+  }});
+  var wkLines=[['Completed hrs',fmtHrs(wk.comp)+'h'],['Planned',wk.n+' sessions'],['Types',Object.keys(types).join(', ')||'—']];
+  wkDetails.forEach(function(d){wkLines.push(d);});
+  grid.appendChild(statCard('WORKOUT',wk.compN,'sessions',wkLines));
   var rec=sumCat('recovery');
   grid.appendChild(statCard('RECOVERY',fmtHrs(rec.comp),'hrs',[['Sessions',rec.compN+' / '+rec.n],['Rest days',R.items.filter(function(o){return o.category==='recovery'&&/rest/i.test(o.title);}).length]]));
   var tr=sumCat('trading');
@@ -1345,30 +1419,79 @@ function reportSummary(body){
 function reportHealth(body){
   var R=collectRange();
   var supp=R.items.filter(function(o){return (o.category==='supplement'||o.category==='medication');});
-  // vitamin/mineral totals from COMPLETED items with ingredient breakdowns
   var totals={};var anyScheduled=supp.length>0;
   supp.forEach(function(o){if(!isCompleted(o))return;
     var def=o.health||state.healthItems.find(function(h){return h.name===o.title;});
     if(def&&def.ingredients)def.ingredients.forEach(function(ing){
       var key=ing.name+' ('+ing.unit+')';totals[key]=(totals[key]||0)+(+ing.amount||0);});});
   var wrap=el('div',{});
-  if(!anyScheduled){
-    wrap.appendChild(el('div',{class:'note'},[el('b',{text:'TIMES TBD '}),
-      document.createTextNode('Your supplement/medication items are defined below but their scheduled times are marked NEEDS USER CONFIRMATION (source files conflict — see MANAGE tab). Nothing is scheduled onto the calendar yet, so completion tracking starts once you set times.')]));
+
+  /* ---- Quick-log supplements for today ---- */
+  wrap.appendChild(el('h3',{style:'letter-spacing:2px;color:var(--green)',text:'DAILY SUPPLEMENT LOG'}));
+  wrap.appendChild(el('div',{class:'hint',style:'margin-bottom:8px'},['Quickly log supplements you took today. These aggregate into the weekly totals below.']));
+  var logGrid=el('div',{style:'display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:6px;margin-bottom:14px'});
+  state.healthItems.forEach(function(h){
+    var todayKey=h.id+'|log|'+todayYmd();
+    var logged=state.actuals.find(function(a){return a.id===todayKey;});
+    var btn=el('button',{class:'btn sm'+(logged?' primary':''),style:'width:100%;text-align:left;display:flex;justify-content:space-between'});
+    btn.innerHTML='<span>'+(h.name.length>18?h.name.slice(0,18)+'…':h.name)+'</span><span>'+(logged?'✓ TAKEN':'LOG')+'</span>';
+    btn.addEventListener('click',function(){
+      if(logged){remove('actuals',todayKey,true).then(function(){renderHome();toast('REMOVED');});}
+      else{var rec={id:todayKey,refId:h.id,date:todayYmd(),category:h.type==='prescription'?'medication':'supplement',
+        title:h.name,actualDose:h.dose||'',completed:true,manual:true,loggedVia:'quicklog'};
+        put('actuals',rec,true).then(function(){renderHome();toast(h.name+' LOGGED');});}
+    });
+    logGrid.appendChild(btn);
+  });
+  if(!state.healthItems.length)logGrid.appendChild(el('div',{class:'hint',text:'No health items defined yet. Add them in MANAGE.'}));
+  wrap.appendChild(logGrid);
+
+  /* ---- Completion table ---- */
+  if(anyScheduled){
+    var t=el('table');t.appendChild(el('tr',{},[el('th',{text:'ITEM'}),el('th',{text:'CATEGORY'}),el('th',{text:'SCHEDULED'}),el('th',{text:'COMPLETED'})]));
+    var byItem={};supp.forEach(function(o){var k=o.title;byItem[k]=byItem[k]||{cat:o.category,n:0,done:0};byItem[k].n++;if(isCompleted(o))byItem[k].done++;});
+    Object.keys(byItem).forEach(function(k){var v=byItem[k];
+      t.appendChild(el('tr',{},[el('td',{text:k}),el('td',{text:CATS[v.cat].label}),el('td',{text:String(v.n)}),el('td',{text:v.done+' / '+v.n})]));});
+    wrap.appendChild(el('h3',{style:'letter-spacing:2px;color:var(--green);margin-top:16px',text:'SCHEDULED COMPLETION'}));wrap.appendChild(t);
   }
-  // completion table
-  var t=el('table');t.appendChild(el('tr',{},[el('th',{text:'ITEM'}),el('th',{text:'CATEGORY'}),el('th',{text:'SCHEDULED'}),el('th',{text:'COMPLETED'})]));
-  var byItem={};supp.forEach(function(o){var k=o.title;byItem[k]=byItem[k]||{cat:o.category,n:0,done:0};byItem[k].n++;if(isCompleted(o))byItem[k].done++;});
-  Object.keys(byItem).forEach(function(k){var v=byItem[k];
-    t.appendChild(el('tr',{},[el('td',{text:k}),el('td',{text:CATS[v.cat].label}),el('td',{text:String(v.n)}),el('td',{text:v.done+' / '+v.n})]));});
-  if(Object.keys(byItem).length){wrap.appendChild(el('h3',{class:'',style:'letter-spacing:2px;color:var(--green)',text:'COMPLETION'}));wrap.appendChild(t);}
-  // vitamin/mineral totals
-  wrap.appendChild(el('h3',{style:'letter-spacing:2px;color:var(--green);margin-top:16px',text:'VITAMIN / MINERAL TOTALS (completed only)'}));
+
+  /* ---- Daily log breakdown for the range ---- */
+  var logItems=state.actuals.filter(function(a){return a.loggedVia==='quicklog'&&R.days.indexOf(a.date)>=0;});
+  if(logItems.length){
+    wrap.appendChild(el('h3',{style:'letter-spacing:2px;color:var(--green);margin-top:16px',text:'DAILY LOG ENTRIES THIS RANGE'}));
+    var lt=el('table');lt.appendChild(el('tr',{},[el('th',{text:'DATE'}),el('th',{text:'ITEM'}),el('th',{text:'DOSE'})]));
+    logItems.sort(function(a,b){return a.date<b.date?-1:1;}).forEach(function(a){
+      lt.appendChild(el('tr',{},[el('td',{text:a.date}),el('td',{text:a.title}),el('td',{text:a.actualDose||'—'})]));});
+    wrap.appendChild(lt);
+    // aggregate logged nutrients
+    var logTotals={};
+    logItems.forEach(function(a){
+      var def=state.healthItems.find(function(h){return h.id===a.refId;});
+      if(def&&def.ingredients)def.ingredients.forEach(function(ing){
+        var key=ing.name+' ('+ing.unit+')';logTotals[key]=(logTotals[key]||0)+(+ing.amount||0);});});
+    var lk=Object.keys(logTotals);
+    if(lk.length){Object.keys(logTotals).forEach(function(k){totals[k]=(totals[k]||0)+logTotals[k];});}
+  }
+
+  /* ---- Vitamin/mineral totals ---- */
+  wrap.appendChild(el('h3',{style:'letter-spacing:2px;color:var(--green);margin-top:16px',text:'VITAMIN / MINERAL TOTALS (completed + logged)'}));
   var vt=el('table');vt.appendChild(el('tr',{},[el('th',{text:'NUTRIENT'}),el('th',{text:'TOTAL THIS RANGE'})]));
   var keys=Object.keys(totals);
   if(!keys.length)vt.appendChild(el('tr',{},[el('td',{colspan:'2',html:'<span class="mini">No completed supplement doses in this range yet.</span>'})]));
   else keys.sort().forEach(function(k){vt.appendChild(el('tr',{},[el('td',{text:k.replace(/ \(.*/,'')}),el('td',{text:totals[k].toFixed(2)+' '+(k.match(/\((.*)\)/)||[,''])[1]})]));});
   wrap.appendChild(vt);
+
+  /* ---- Collapsible supplement definitions ---- */
+  var defToggle=el('button',{class:'btn sm ghost',style:'margin-top:16px'},['▸ SUPPLEMENT / VITAMIN DEFINITIONS']);
+  var defWrap=el('div',{style:'display:none;margin-top:8px'});
+  defToggle.addEventListener('click',function(){var v=defWrap.style.display==='none';defWrap.style.display=v?'':'none';defToggle.textContent=v?'▾ SUPPLEMENT / VITAMIN DEFINITIONS':'▸ SUPPLEMENT / VITAMIN DEFINITIONS';});
+  var dt=el('table');dt.appendChild(el('tr',{},[el('th',{text:'NAME'}),el('th',{text:'TYPE'}),el('th',{text:'DOSE'}),el('th',{text:'INGREDIENTS'})]));
+  state.healthItems.forEach(function(h){
+    dt.appendChild(el('tr',{},[el('td',{text:h.name}),el('td',{text:h.type}),el('td',{text:h.dose||'—'}),
+      el('td',{html:'<span class="mini">'+(h.ingredients&&h.ingredients.length?h.ingredients.map(function(i){return i.name+' '+i.amount+i.unit;}).join(', '):'—')+'</span>'})]));});
+  defWrap.appendChild(dt);
+  wrap.appendChild(defToggle);wrap.appendChild(defWrap);
+
   body.appendChild(wrap);
 }
 function openRoutineModal(r,isNew){
@@ -1400,7 +1523,7 @@ function openRoutineModal(r,isNew){
     el('h3',{text:isNew?'NEW ROUTINE':'EDIT ROUTINE'}),
     fld('Full title',title),
     el('div',{class:'fld two'},[el('div',{},[el('label',{text:'Short label (calendar)'}),short]),el('div',{},[el('label',{text:'Category'}),cat])]),
-    el('div',{class:'fld two'},[el('div',{},[el('label',{text:'Start'}),start]),el('div',{},[el('label',{text:'End'}),end])]),
+    el('div',{class:'fld two'},[el('div',{},[el('label',{text:'Start (optional)'}),start]),el('div',{},[el('label',{text:'End (optional — blank = open-ended)'}),end])]),
     el('div',{class:'fld'},[tbdLab]),
     fld('Repeat',recur), weeklyF, monthlyF, customF,
     el('div',{class:'fld two'},[el('div',{},[el('label',{text:'Effective from'}),effFrom]),el('div',{},[el('label',{text:'Effective to (blank = ongoing)'}),effTo])]),
@@ -1447,8 +1570,11 @@ function reportManage(body){
     var rep=r.recur+(r.recur==='weekly'?' ['+(r.weekdays||[]).map(function(i){return DOW[i];}).join(' ')+']':'');
     rt.appendChild(el('tr',{},[el('td',{text:r.title}),el('td',{text:CATS[r.category].label}),el('td',{text:rep}),
       el('td',{html:'<span class="mini">'+win+'</span>'}),
-      el('td',{},[el('button',{class:'btn sm',onclick:function(){openRoutineModal(r);}},['EDIT']),el('button',{class:'btn sm danger',onclick:function(){confirmModal('End routine',r.title,'Sets an end date; history is preserved.',[
-        {label:'END TODAY',cls:'danger',fn:function(){var b=JSON.parse(JSON.stringify(r));r.effectiveTo=todayYmd();audit('edit','routines',b,r);repoPut('routines',r).then(function(){closeModal();renderReports();});}}]);}},['END'])])]));
+      el('td',{},[el('button',{class:'btn sm',onclick:function(){openRoutineModal(r);}},['EDIT']),
+        el('button',{class:'btn sm danger',onclick:function(){confirmModal('End routine',r.title,'Sets an end date; history is preserved.',[
+        {label:'END TODAY',cls:'danger',fn:function(){var b=JSON.parse(JSON.stringify(r));r.effectiveTo=todayYmd();audit('edit','routines',b,r);repoPut('routines',r).then(function(){closeModal();renderHome();});}}]);}},['END']),
+        el('button',{class:'btn sm danger',onclick:function(){confirmModal('Delete routine permanently',r.title,'This permanently removes the routine. All historical actual records are preserved, but the routine rule is gone forever.',[
+        {label:'DELETE FOREVER',cls:'danger',fn:function(){remove('routines',r.id,true).then(function(){closeModal();renderHome();toast('ROUTINE DELETED');});}}]);}},['DELETE'])])]));
   });
   if(!state.routines.length)rt.appendChild(el('tr',{},[el('td',{colspan:'5',html:'<span class="mini">No routines.</span>'})]));
   body.appendChild(rt);
@@ -1481,6 +1607,25 @@ function reportManage(body){
     el('input',{type:'file',id:'mImportFile',accept:'.json',style:'display:none',onchange:importData})
   ]));
   body.appendChild(el('div',{class:'hint',style:'margin-top:6px'},['Auto-backup downloads a file each week (the first time you open the app on/after Sunday). Keep those files somewhere safe; use IMPORT / RESTORE to load one back.']));
+  // Realm assignments
+  body.appendChild(el('div',{class:'row',style:'margin-top:20px'},[
+    el('h3',{style:'letter-spacing:2px;color:var(--green);margin:0',text:'ETHER / REALITY REALMS'}),
+    el('span',{class:'spacer'})]));
+  body.appendChild(el('div',{class:'hint',style:'margin-bottom:8px'},['Assign each category to ETHER (inner/spiritual) or HUMAN EXPERIENCE (practical/lived). This controls the color coding on calendar items.']));
+  var realmGrid=el('div',{style:'display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px'});
+  Object.keys(CATS).forEach(function(cat){
+    var cur=catRealm(cat);
+    var tog=el('button',{class:'btn sm',style:'display:flex;align-items:center;gap:8px;width:100%;justify-content:space-between'});
+    tog.innerHTML='<span>'+CATS[cat].label+'</span><span style="color:'+REALMS[cur].color+'">'+REALMS[cur].label+'</span>';
+    tog.addEventListener('click',function(){
+      var realms=state.settings.realms?JSON.parse(JSON.stringify(state.settings.realms)):{};
+      realms[cat]=catRealm(cat)==='ether'?'reality':'ether';
+      setSetting('realms',realms).then(function(){renderHome();});
+    });
+    realmGrid.appendChild(tog);
+  });
+  body.appendChild(realmGrid);
+
   body.appendChild(el('h3',{style:'letter-spacing:2px;color:var(--green);margin-top:20px',text:'GITHUB SYNC'}));
   if(ghOn()){
     var c=ghCfg();
@@ -1600,6 +1745,140 @@ function wipeAndSeed(){Promise.all(STORES.map(function(s){return repoClear(s);})
 /* ================================================================
    QUARTERS
    ================================================================ */
+/* ================================================================
+   WEALTH TAB  —  balance tracking, bills, savings
+   wealthItems store: {id, type:'account'|'bill'|'savings', name, amount, dueDay, freq, paid, notes, updatedAt}
+   ================================================================ */
+function renderWealth(){
+  var body=$('#wBody');body.innerHTML='';
+  var accounts=state.wealthItems.filter(function(w){return w.type==='account';});
+  var bills=state.wealthItems.filter(function(w){return w.type==='bill';});
+  var savings=state.wealthItems.filter(function(w){return w.type==='savings';});
+
+  /* ---- ACCOUNTS ---- */
+  var acSec=el('div',{class:'panel',style:'margin-bottom:16px'});
+  acSec.appendChild(el('div',{class:'row',style:'align-items:center'},[
+    el('h3',{style:'letter-spacing:2px;color:var(--green);margin:0',text:'ACCOUNTS'}),
+    el('span',{class:'spacer'}),
+    el('button',{class:'btn sm primary',onclick:function(){openWealthModal('account');}},['+ ACCOUNT'])]));
+  if(accounts.length){
+    var totalBal=0;
+    var at=el('table',{style:'margin-top:10px'});at.appendChild(el('tr',{},[el('th',{text:'NAME'}),el('th',{text:'BALANCE'}),el('th',{text:'UPDATED'}),el('th',{text:''})]));
+    accounts.forEach(function(a){totalBal+=a.amount||0;
+      at.appendChild(el('tr',{},[el('td',{text:a.name}),
+        el('td',{style:'color:'+(a.amount>=0?'var(--green)':'var(--bad)'),text:'$'+fmtMoney(a.amount)}),
+        el('td',{html:'<span class="mini">'+(a.updatedAt?new Date(a.updatedAt).toLocaleDateString():'—')+'</span>'}),
+        el('td',{},[el('button',{class:'btn sm',onclick:(function(x){return function(){openWealthModal('account',x);};})(a)},['EDIT'])])]));});
+    at.appendChild(el('tr',{style:'border-top:2px solid var(--line)'},[el('td',{html:'<b>TOTAL</b>'}),
+      el('td',{style:'color:'+(totalBal>=0?'var(--green)':'var(--bad)'),html:'<b>$'+fmtMoney(totalBal)+'</b>'}),el('td'),el('td')]));
+    acSec.appendChild(at);
+  }else{acSec.appendChild(el('div',{class:'hint',style:'margin-top:8px'},['No accounts yet. Add one to start tracking balances.']));}
+  body.appendChild(acSec);
+
+  /* ---- BILLS ---- */
+  var blSec=el('div',{class:'panel',style:'margin-bottom:16px'});
+  blSec.appendChild(el('div',{class:'row',style:'align-items:center'},[
+    el('h3',{style:'letter-spacing:2px;color:var(--warn);margin:0',text:'BILLS'}),
+    el('span',{class:'spacer'}),
+    el('button',{class:'btn sm primary',onclick:function(){openWealthModal('bill');}},['+ BILL'])]));
+  if(bills.length){
+    var totalBills=0;
+    var bt=el('table',{style:'margin-top:10px'});bt.appendChild(el('tr',{},[el('th',{text:'NAME'}),el('th',{text:'AMOUNT'}),el('th',{text:'DUE'}),el('th',{text:'FREQ'}),el('th',{text:'STATUS'}),el('th',{text:''})]));
+    bills.forEach(function(b){totalBills+=b.amount||0;
+      var paidNow=b.paid===todayYmd().slice(0,7);
+      bt.appendChild(el('tr',{style:paidNow?'opacity:0.5':''},[el('td',{text:b.name}),
+        el('td',{style:'color:var(--bad)',text:'$'+fmtMoney(b.amount)}),
+        el('td',{text:b.dueDay?'Day '+b.dueDay:'—'}),
+        el('td',{html:'<span class="mini">'+(b.freq||'monthly')+'</span>'}),
+        el('td',{},[el('button',{class:'btn sm '+(paidNow?'on':'ghost'),onclick:(function(x){return function(){
+          x.paid=paidNow?'':todayYmd().slice(0,7);put('wealthItems',x,false).then(function(){renderWealth();});
+        };})(b)},[paidNow?'PAID ✓':'UNPAID'])]),
+        el('td',{},[el('button',{class:'btn sm',onclick:(function(x){return function(){openWealthModal('bill',x);};})(b)},['EDIT'])])]));});
+    bt.appendChild(el('tr',{style:'border-top:2px solid var(--line)'},[el('td',{html:'<b>TOTAL/MO</b>'}),
+      el('td',{style:'color:var(--bad)',html:'<b>$'+fmtMoney(totalBills)+'</b>'}),el('td'),el('td'),el('td'),el('td')]));
+    blSec.appendChild(bt);
+  }else{blSec.appendChild(el('div',{class:'hint',style:'margin-top:8px'},['No bills yet. Add recurring bills to track monthly expenses.']));}
+  body.appendChild(blSec);
+
+  /* ---- SAVINGS ---- */
+  var svSec=el('div',{class:'panel',style:'margin-bottom:16px'});
+  svSec.appendChild(el('div',{class:'row',style:'align-items:center'},[
+    el('h3',{style:'letter-spacing:2px;color:var(--purple);margin:0',text:'SAVINGS'}),
+    el('span',{class:'spacer'}),
+    el('button',{class:'btn sm primary',onclick:function(){openWealthModal('savings');}},['+ SAVINGS'])]));
+  if(savings.length){
+    var totalSav=0;
+    var st=el('table',{style:'margin-top:10px'});st.appendChild(el('tr',{},[el('th',{text:'NAME'}),el('th',{text:'BALANCE'}),el('th',{text:'GOAL'}),el('th',{text:'PROGRESS'}),el('th',{text:''})]));
+    savings.forEach(function(s){totalSav+=s.amount||0;
+      var pct=s.goal&&s.goal>0?Math.min(100,Math.round(s.amount/s.goal*100)):null;
+      var bar=pct!==null?el('div',{style:'background:var(--panel2);border-radius:4px;height:8px;width:80px;overflow:hidden'},[
+        el('div',{style:'background:var(--purple);height:100%;width:'+pct+'%;border-radius:4px'})]):el('span',{class:'mini',text:'—'});
+      st.appendChild(el('tr',{},[el('td',{text:s.name}),
+        el('td',{style:'color:var(--purple)',text:'$'+fmtMoney(s.amount)}),
+        el('td',{text:s.goal?'$'+fmtMoney(s.goal):'—'}),
+        el('td',{},[bar,pct!==null?el('span',{class:'mini',text:' '+pct+'%'}):null]),
+        el('td',{},[el('button',{class:'btn sm',onclick:(function(x){return function(){openWealthModal('savings',x);};})(s)},['EDIT'])])]));});
+    st.appendChild(el('tr',{style:'border-top:2px solid var(--line)'},[el('td',{html:'<b>TOTAL SAVED</b>'}),
+      el('td',{style:'color:var(--purple)',html:'<b>$'+fmtMoney(totalSav)+'</b>'}),el('td'),el('td'),el('td')]));
+    svSec.appendChild(st);
+  }else{svSec.appendChild(el('div',{class:'hint',style:'margin-top:8px'},['No savings goals yet. Add one to track progress toward your targets.']));}
+  body.appendChild(svSec);
+
+  /* ---- snapshot ---- */
+  var snap=el('div',{class:'rgrid',style:'margin-top:8px'});
+  var tBal=accounts.reduce(function(s,a){return s+(a.amount||0);},0);
+  var tBill=bills.reduce(function(s,b){return s+(b.amount||0);},0);
+  var tSav=savings.reduce(function(s,v){return s+(v.amount||0);},0);
+  snap.appendChild(statCard('NET BALANCE','$'+fmtMoney(tBal),'',[]));
+  snap.appendChild(statCard('MONTHLY BILLS','$'+fmtMoney(tBill),'',[]));
+  snap.appendChild(statCard('TOTAL SAVINGS','$'+fmtMoney(tSav),'',[]));
+  snap.appendChild(statCard('AFTER BILLS','$'+fmtMoney(tBal-tBill),'',[]));
+  body.appendChild(snap);
+}
+function fmtMoney(n){n=n||0;var neg=n<0;n=Math.abs(n);var s=n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');return neg?'-'+s:s;}
+function openWealthModal(type,existing){
+  var h=existing||null;
+  var labels={account:'ACCOUNT',bill:'BILL',savings:'SAVINGS GOAL'};
+  var name=el('input',{type:'text',value:h?h.name:'',placeholder:'e.g. Chase Checking'});
+  var amount=el('input',{type:'number',step:'0.01',value:h?h.amount||'':'',placeholder:type==='bill'?'monthly amount':'current balance'});
+  var fields=[fld('Name',name),fld(type==='bill'?'Monthly Amount':'Balance',amount)];
+  var dueDay=null,freq=null,goal=null,notes=null;
+  if(type==='bill'){
+    dueDay=el('input',{type:'number',min:'1',max:'31',value:h?h.dueDay||'':'',placeholder:'1-31'});
+    freq=el('select');['monthly','quarterly','annual'].forEach(function(f){var o=el('option',{value:f,text:f});if(h&&h.freq===f)o.selected=true;freq.appendChild(o);});
+    fields.push(el('div',{class:'fld two'},[el('div',{},[el('label',{text:'Due day of month'}),dueDay]),el('div',{},[el('label',{text:'Frequency'}),freq])]));
+  }
+  if(type==='savings'){
+    goal=el('input',{type:'number',step:'0.01',value:h?h.goal||'':'',placeholder:'target amount'});
+    fields.push(fld('Goal',goal));
+  }
+  notes=el('textarea',{rows:'2',value:h?h.notes||'':''});
+  fields.push(fld('Notes',notes));
+  fields.push(el('div',{class:'modal-actions'},[
+    el('button',{class:'btn primary',onclick:function(){
+      if(!name.value.trim()){toast('NAME REQUIRED');return;}
+      var rec=h?JSON.parse(JSON.stringify(h)):{id:uid(),type:type};
+      rec.name=name.value.trim();rec.amount=+amount.value||0;rec.notes=notes.value.trim();rec.updatedAt=Date.now();
+      if(type==='bill'){rec.dueDay=+dueDay.value||null;rec.freq=freq.value;}
+      if(type==='savings'){rec.goal=+goal.value||null;}
+      put('wealthItems',rec,true).then(function(){closeModal();renderWealth();toast(labels[type]+' SAVED');});
+    }},['SAVE']),
+    (h?el('button',{class:'btn danger',onclick:function(){remove('wealthItems',h.id,true).then(function(){closeModal();renderWealth();toast(labels[type]+' DELETED');});}},['DELETE']):null),
+    el('button',{class:'btn ghost',onclick:closeModal},['CANCEL'])
+  ]));
+  openModal(el('div',{},[el('h3',{text:h?'EDIT '+labels[type]:'NEW '+labels[type]})].concat(fields)));
+}
+
+function quarterMonthAgg(y,m){
+  var agg={work:0,workoutN:0,workoutMin:0,trading:0,sleepMin:0,sleepN:0,recovery:0};
+  var n=new Date(y,m+1,0).getDate();
+  for(var d=1;d<=n;d++){var ds=y+'-'+pad(m+1)+'-'+pad(d);
+    occurrencesFor(ds).forEach(function(o){var dur=trackedDur(o);
+      if(o.category==='work')agg.work+=dur;
+      else if(o.category==='workout'){if(isCompleted(o))agg.workoutN++;agg.workoutMin+=dur;}
+      else if(o.category==='trading')agg.trading+=dur;
+      else if(o.category==='sleep'){agg.sleepMin+=dur;if(dur>0)agg.sleepN++;}
+      else if(o.category==='recovery')agg.recovery+=dur;});} return agg;}
 function renderQuarters(){
   var tabs=$('#qTabs');tabs.innerHTML='';
   [['2026-Q3','Q3 2026'],['2026-Q4','Q4 2026']].forEach(function(q){
@@ -1609,22 +1888,32 @@ function renderQuarters(){
   var months=[[0,1,2],[3,4,5],[6,7,8],[9,10,11]][q-1];
   body.appendChild(el('div',{class:'panel'},[el('h3',{},['QUARTER SUMMARY ',el('span',{class:'sub',text:'DAY → WEEK → MONTH → QUARTER'})]),
     el('div',{class:'hint',style:'margin-bottom:10px'},['Higher-level rollup of actual + planned records. Not a second calendar.'])]));
+  /* quarter-wide totals */
+  var qTotal={work:0,workoutN:0,workoutMin:0,trading:0,sleepMin:0,sleepN:0,recovery:0};
+  var mAggs=months.map(function(m){var a=quarterMonthAgg(y,m);
+    qTotal.work+=a.work;qTotal.workoutN+=a.workoutN;qTotal.workoutMin+=a.workoutMin;
+    qTotal.trading+=a.trading;qTotal.sleepMin+=a.sleepMin;qTotal.sleepN+=a.sleepN;qTotal.recovery+=a.recovery;return a;});
   var grid=el('div',{class:'rgrid',style:'margin-top:14px'});
-  var agg={work:0,workoutN:0,workoutMin:0,trading:0,sleepMin:0,sleepN:0,recovery:0};
-  months.forEach(function(m){var n=new Date(y,m+1,0).getDate();
-    for(var d=1;d<=n;d++){var ds=y+'-'+pad(m+1)+'-'+pad(d);
-      occurrencesFor(ds).forEach(function(o){var dur=trackedDur(o);
-        if(o.category==='work')agg.work+=dur;
-        else if(o.category==='workout'){if(isCompleted(o))agg.workoutN++;agg.workoutMin+=dur;}
-        else if(o.category==='trading')agg.trading+=dur;
-        else if(o.category==='sleep'){agg.sleepMin+=dur;if(dur>0)agg.sleepN++;}
-        else if(o.category==='recovery')agg.recovery+=dur;});}});
-  grid.appendChild(statCard('WORK',fmtHrs(agg.work),'hrs',[['Months',months.map(function(m){return MONA[m];}).join(' · ')]]));
-  grid.appendChild(statCard('WORKOUTS',String(agg.workoutN),'sessions',[['Hours',fmtHrs(agg.workoutMin)+'h']]));
-  grid.appendChild(statCard('TRADING',fmtHrs(agg.trading),'hrs',[]));
-  grid.appendChild(statCard('SLEEP',fmtHrs(agg.sleepMin),'hrs',[['Avg/night',agg.sleepN?fmtHrs(agg.sleepMin/agg.sleepN)+'h':'—']]));
-  grid.appendChild(statCard('RECOVERY',fmtHrs(agg.recovery),'hrs',[]));
+  grid.appendChild(statCard('WORK',fmtHrs(qTotal.work),'hrs',[['Months',months.map(function(m){return MONA[m];}).join(' · ')]]));
+  grid.appendChild(statCard('WORKOUTS',String(qTotal.workoutN),'sessions',[['Hours',fmtHrs(qTotal.workoutMin)+'h']]));
+  grid.appendChild(statCard('TRADING',fmtHrs(qTotal.trading),'hrs',[]));
+  grid.appendChild(statCard('SLEEP',fmtHrs(qTotal.sleepMin),'hrs',[['Avg/night',qTotal.sleepN?fmtHrs(qTotal.sleepMin/qTotal.sleepN)+'h':'—']]));
+  grid.appendChild(statCard('RECOVERY',fmtHrs(qTotal.recovery),'hrs',[]));
   body.appendChild(grid);
+  /* per-month breakdowns */
+  months.forEach(function(m,i){
+    var a=mAggs[i];
+    var sec=el('div',{class:'panel',style:'margin-top:16px;border-left:3px solid var(--green);padding-left:12px'});
+    sec.appendChild(el('h3',{style:'letter-spacing:2px;color:var(--green);margin:0 0 8px',text:MON[m]+' '+y}));
+    var mg=el('div',{class:'rgrid'});
+    mg.appendChild(statCard('WORK',fmtHrs(a.work),'hrs',[]));
+    mg.appendChild(statCard('WORKOUTS',String(a.workoutN),'sessions',[['Hours',fmtHrs(a.workoutMin)+'h']]));
+    mg.appendChild(statCard('TRADING',fmtHrs(a.trading),'hrs',[]));
+    mg.appendChild(statCard('SLEEP',fmtHrs(a.sleepMin),'hrs',[['Avg/night',a.sleepN?fmtHrs(a.sleepMin/a.sleepN)+'h':'—']]));
+    mg.appendChild(statCard('RECOVERY',fmtHrs(a.recovery),'hrs',[]));
+    sec.appendChild(mg);
+    body.appendChild(sec);
+  });
   body.appendChild(el('div',{class:'note',style:'margin-top:14px'},[el('b',{text:'ROLLS FORWARD '}),
     document.createTextNode('2027 quarters generate automatically from the same routines and any records you log — no rebuild needed.')]));
 }
@@ -2018,6 +2307,7 @@ window.__life.selfTest=selfTest;
 function refreshTimeTracking(){
   if(document.visibilityState==='hidden')return;
   if(ui.view==='quarters'){renderQuarters();return;}
+  if(ui.view==='wealth'){renderWealth();return;}
   if(ui.view!=='home')return;
   if(ui.homeTab==='calendar'){
     renderToday();
@@ -2038,7 +2328,10 @@ function wire(){
   $$('#rRangeBar button').forEach(function(b){b.addEventListener('click',function(){ui.rRange=b.dataset.range;renderReports();});});
   $$('#hTabs button').forEach(function(b){b.addEventListener('click',function(){ui.homeTab=b.dataset.h;renderHome();});});
   $$('#hRangeBar button').forEach(function(b){b.addEventListener('click',function(){ui.rRange=b.dataset.hrange;renderHome();});});
-  $$('#calSummaryPanel button[data-csrange]').forEach(function(b){b.addEventListener('click',function(){ui.rRange=b.dataset.csrange;renderHome();});});
+  $$('#calSummaryPanel button[data-csrange]').forEach(function(b){b.addEventListener('click',function(){ui.rRange=b.dataset.csrange;ui.weekOffset=0;ui.monthOffset=0;renderHome();});});
+  $('#summPrev').addEventListener('click',function(){if(ui.rRange==='week')ui.weekOffset--;else ui.monthOffset--;renderHome();});
+  $('#summNext').addEventListener('click',function(){if(ui.rRange==='week')ui.weekOffset++;else ui.monthOffset++;renderHome();});
+  $('#summNow').addEventListener('click',function(){ui.weekOffset=0;ui.monthOffset=0;renderHome();});
   document.addEventListener('keydown',function(e){if(e.key==='Escape')closeModal();});
   // mini clock
   setInterval(function(){var n=new Date();$('#miniTime').textContent=pad(n.getHours())+':'+pad(n.getMinutes());
