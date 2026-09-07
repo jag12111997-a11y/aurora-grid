@@ -1036,9 +1036,9 @@ function todayItem(o){
     if(elapsed>0)kv.appendChild(el('span',{class:'badge act',text:isCompleted(o)?'AUTO ✓ '+fmtDur(elapsed):'AUTO '+fmtDur(elapsed)+' ELAPSED'}));
   }
   var body=el('div',{class:'body'},[kv, el('div',{class:'row'},[
+    el('button',{class:'btn sm primary',onclick:function(ev){ev.stopPropagation();openEditModal(o);}},['EDIT']),
     el('button',{class:'btn sm',onclick:function(ev){ev.stopPropagation();openLogModal(o);}},[o.actual?'EDIT ACTUAL':'LOG ACTUAL']),
     el('button',{class:'btn sm',onclick:function(ev){ev.stopPropagation();quickComplete(o);}},[done?((o.category==='medication'||o.category==='supplement')?'MARK NOT TAKEN':'MARK NOT DONE'):((o.category==='medication'||o.category==='supplement')?'MARK TAKEN':'MARK DONE')]),
-    el('button',{class:'btn sm ghost',onclick:function(ev){ev.stopPropagation();openRecategorizeModal(o);}},['RE-CATEGORIZE']),
     !o.isEvent?el('button',{class:'btn sm ghost',onclick:function(ev){ev.stopPropagation();openOverrideModal(o);}},['OVERRIDE DAY']):null,
     el('span',{class:'spacer'}),
     el('button',{class:'btn sm danger',onclick:function(ev){ev.stopPropagation();deleteOccurrence(o);}},['REMOVE'])
@@ -1164,38 +1164,44 @@ function recurSelect(val){var s=el('select');
   [['once','One time'],['daily','Every day'],['weekly','Weekly (pick days)'],['monthly','Monthly (day #)'],['custom','Every N days']].forEach(function(r){
     var o=el('option',{value:r[0],text:r[1]});if(r[0]===val)o.selected=true;s.appendChild(o);});return s;}
 
-/* Add Event / Add-to-Today share one form */
+/* Add and Edit share one form. */
 function openEventModal(opts){
   opts=opts||{};
+  var editing=!!opts.editStore;
+  var original=editing?state[opts.editStore].find(function(r){return r.id===opts.id;}):null;
+  if(editing&&!original){toast('ITEM NOT FOUND');return;}
   var title=el('input',{type:'text',placeholder:'e.g. Dentist appointment',value:opts.title||''});
   var short=el('input',{type:'text',maxlength:'8',placeholder:'DENTIST',value:opts.short||''});
   var cat=catSelect(opts.category||'custom');
-  var date=el('input',{type:'date',value:opts.date||ui.selDate});
+  var date=el('input',{type:'date',value:opts.recur==='once'?(opts.date||ui.selDate):(opts.effectiveFrom||opts.date||ui.selDate)});
   var start=el('input',{type:'time',value:opts.start||''});
   var end=el('input',{type:'time',value:opts.end||''});
   var recur=recurSelect(opts.recur||'once');
-  var notes=el('textarea',{rows:'2',placeholder:'optional'});
+  var notes=el('textarea',{rows:'2',placeholder:'optional'});notes.value=opts.notes||'';
   var wdWrap=el('div',{class:'wdays'});var wdBoxes=[];
-  DOW.forEach(function(w,i){var cb=el('input',{type:'checkbox'});wdBoxes.push(cb);
-    var lab=el('label',{},[cb,document.createTextNode(w)]);
+  DOW.forEach(function(w,i){var cb=el('input',{type:'checkbox'});cb.checked=(opts.weekdays||[]).indexOf(i)>=0;wdBoxes.push(cb);
+    var lab=el('label',{},[cb,document.createTextNode(w)]);lab.classList.toggle('on',cb.checked);
     cb.addEventListener('change',function(){lab.classList.toggle('on',cb.checked);});
     wdWrap.appendChild(lab);});
-  var dom=el('input',{type:'number',min:'1',max:'31',value:'1'});
-  var iv=el('input',{type:'number',min:'1',value:'2'});
+  var dom=el('input',{type:'number',min:'1',max:'31',value:opts.dayOfMonth||1});
+  var iv=el('input',{type:'number',min:'1',value:opts.interval||2});
   var weeklyF=fld('On which days',wdWrap),monthlyF=fld('Day of month',dom),customF=fld('Every N days',iv);
-  var onceRow=el('div',{class:'fld two'},[el('div',{},[el('label',{text:'Date'}),date]),el('div',{})]);
+  var dateLabel=el('label',{text:'Date'});
+  var onceRow=el('div',{class:'fld two'},[el('div',{},[dateLabel,date]),el('div',{})]);
   function syncRecur(){var v=recur.value;
     weeklyF.style.display=v==='weekly'?'':'none';
     monthlyF.style.display=v==='monthly'?'':'none';
     customF.style.display=v==='custom'?'':'none';
-    onceRow.style.display=(v==='once'||v==='custom')?'':'none';}
+    onceRow.style.display='';
+    dateLabel.textContent=v==='once'?'Date':'Starts on';}
   recur.addEventListener('change',syncRecur);
   var realm=realmSelect(opts.realm||'');
   var realmRow=fld('Ether / Reality',realm);
-  realmRow.style.display=cat.value==='custom'?'':'none';
-  cat.addEventListener('change',function(){realmRow.style.display=cat.value==='custom'?'':'none';});
+  realmRow.style.display='';
+  cat.addEventListener('change',function(){realmRow.style.display='';});
   var form=el('div',{},[
     el('h3',{text:opts.heading||'ADD EVENT'}),
+    editing&&opts.recur!=='once'?el('div',{class:'hint',style:'margin-bottom:12px',text:'Edits apply to the whole repeating schedule.'}):null,
     fld('Full title',title),
     el('div',{class:'fld two'},[el('div',{},[el('label',{text:'Short label (calendar)'}),short]),el('div',{},[el('label',{text:'Category'}),cat])]),
     realmRow,
@@ -1203,18 +1209,39 @@ function openEventModal(opts){
     fld('Repeat',recur), onceRow, weeklyF, monthlyF, customF,
     fld('Notes',notes),
     el('div',{class:'modal-actions'},[
-      el('button',{class:'btn primary',onclick:function(){
-        if(!title.value.trim()){toast('TITLE REQUIRED');return;}
-        var rec={id:uid(),title:title.value.trim(),short:(short.value.trim()||title.value.trim().slice(0,6)).toUpperCase(),
-          category:cat.value,realm:realm.value||undefined,start:start.value,end:end.value,crosses:end.value&&start.value&&toMin(end.value)<=toMin(start.value),
-          recur:recur.value,notes:notes.value.trim(),effectiveFrom:date.value||ui.selDate};
-        if(recur.value==='once'){rec.date=date.value||ui.selDate;put('events',rec,true);}
-        else if(recur.value==='weekly'){rec.weekdays=wdBoxes.map(function(c,i){return c.checked?i:-1;}).filter(function(x){return x>=0;});
-          if(!rec.weekdays.length){toast('PICK AT LEAST ONE DAY');return;}put('routines',rec,true);}
-        else if(recur.value==='monthly'){rec.dayOfMonth=+dom.value;put('routines',rec,true);}
-        else if(recur.value==='custom'){rec.interval=+iv.value;rec.date=date.value||ui.selDate;put('routines',rec,true);}
-        else {put('routines',rec,true);}
-        closeModal();renderHome();toast('SAVED');
+      el('button',{class:'btn primary',onclick:async function(){
+        var save=this;
+        if(save.disabled)return;
+        if(!title.value.trim()){toast('TITLE REQUIRED');title.focus();return;}
+        if(!date.value||!date.checkValidity()){toast('ENTER A VALID DATE');date.focus();return;}
+        var weekdays=wdBoxes.map(function(c,i){return c.checked?i:-1;}).filter(function(x){return x>=0;});
+        if(recur.value==='weekly'&&!weekdays.length){toast('PICK AT LEAST ONE DAY');return;}
+        if(recur.value==='monthly'&&(!dom.checkValidity()||!dom.value)){toast('ENTER A DAY FROM 1 TO 31');return;}
+        if(recur.value==='custom'&&(!iv.checkValidity()||!iv.value)){toast('ENTER A WHOLE NUMBER OF DAYS');return;}
+        var rec=Object.assign({},original||{id:uid()},{
+          title:title.value.trim(),short:(short.value.trim()||title.value.trim().slice(0,6)).toUpperCase(),
+          category:cat.value,realm:realm.value||undefined,start:start.value,end:end.value,
+          crosses:!!(end.value&&start.value&&toMin(end.value)<=toMin(start.value)),
+          recur:recur.value,notes:notes.value.trim(),effectiveFrom:date.value});
+        delete rec.date;delete rec.weekdays;delete rec.dayOfMonth;delete rec.interval;
+        if(recur.value==='once'||recur.value==='custom')rec.date=date.value;
+        if(recur.value==='weekly')rec.weekdays=weekdays;
+        if(recur.value==='monthly')rec.dayOfMonth=+dom.value;
+        if(recur.value==='custom')rec.interval=+iv.value;
+        if(original&&(rec.start!==(original.start||'')||rec.end!==(original.end||''))){
+          delete rec.durPlan;rec.tbd=false;
+        }
+        if(rec.effectiveTo&&rec.effectiveTo<rec.effectiveFrom){toast('DATE IS AFTER THIS SCHEDULE ENDS');return;}
+        var store=opts.editStore||(rec.recur==='once'?'events':'routines');
+        save.disabled=true;
+        try{
+          // Persist before updating the visible state; a failed save leaves the draft open.
+          await repoPut(store,rec);
+          var index=state[store].findIndex(function(r){return r.id===rec.id;});
+          if(index>=0)state[store][index]=rec;else state[store].push(rec);
+          audit(editing?'edit':'add',store,original,rec);
+          closeModal();renderHome();toast(editing?'CHANGES SAVED':'SAVED');
+        }catch(err){save.disabled=false;toast('COULD NOT SAVE — PLEASE TRY AGAIN');}
       }},['SAVE']),
       el('button',{class:'btn ghost',onclick:closeModal},['CANCEL'])
     ])
@@ -1290,31 +1317,12 @@ function openOverrideModal(o){
   ]));
 }
 
-/* re-categorize an item's source routine or event */
-function openRecategorizeModal(o){
-  var src=state.routines.find(function(x){return x.id===o.refId;})||state.events.find(function(x){return x.id===o.refId;});
-  if(!src){toast('SOURCE NOT FOUND');return;}
-  var cat=catSelect(src.category);
-  var realm=realmSelect(src.realm||'');
-  var realmRow=fld('Ether / Reality',realm);
-  openModal(el('div',{},[
-    el('h3',{text:'RE-CATEGORIZE'}),
-    el('div',{class:'hint',style:'margin-bottom:8px'},['Change the category or realm for "'+src.title+'". This updates all future occurrences.']),
-    fld('New category',cat),
-    realmRow,
-    el('div',{class:'modal-actions'},[
-      el('button',{class:'btn primary',onclick:function(){
-        var before=JSON.parse(JSON.stringify(src));
-        src.category=cat.value;
-        src.short=CATS[cat.value].short;
-        src.realm=realm.value||undefined;
-        var store=o.isEvent?'events':'routines';
-        audit('edit',store,before,src);
-        repoPut(store,src).then(function(){closeModal();renderHome();toast('CATEGORY UPDATED');});
-      }},['SAVE']),
-      el('button',{class:'btn ghost',onclick:closeModal},['CANCEL'])
-    ])
-  ]));
+/* Open the same form as Add, keeping the original record and its history links. */
+function openEditModal(o){
+  var store=o.isEvent?'events':'routines';
+  var src=state[store].find(function(x){return x.id===o.refId;});
+  if(!src){toast('ITEM NOT FOUND');return;}
+  openEventModal(Object.assign({},src,{heading:'EDIT EVENT',editStore:store}));
 }
 
 /* ================================================================
@@ -2421,3 +2429,4 @@ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',
 </script>
 </body>
 </html>
+
