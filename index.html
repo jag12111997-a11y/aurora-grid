@@ -2375,7 +2375,7 @@ function buildClock(){
       e2("path",{id:"zsec"+i,d:ringSector(a0,a1,0,R_DISC),fill:"#4a8aff","fill-opacity":0},clip);
       var e0=pt(a0,0),e1=pt(a0,R_DISC);e2("line",{x1:ff(e0.x),y1:ff(e0.y),x2:ff(e1.x),y2:ff(e1.y),stroke:"#ff2d9b","stroke-width":1,opacity:0.55},clip);
       var mid=(a0+a1)/2,sp=pt(mid,R_ZSYM);var t=tx2(ZS[i][0],{id:"zs"+i,x:ff(sp.x),y:ff(sp.y),"text-anchor":"middle","dominant-baseline":"central"},clip);t.setAttribute("fill","#e0c8ff");t.setAttribute("font-size","26");}
-    var burst=e2("g",{},clip);for(var s=0;s<48;s++){var len=46+(s%3)*16;var b0=pt(s*7.5,6),b1=pt(s*7.5,len);
+    var burst=e2("g",{opacity:0.35},clip);for(var s=0;s<48;s++){var len=46+(s%3)*16;var b0=pt(s*7.5,6),b1=pt(s*7.5,len);
       e2("line",{x1:ff(b0.x),y1:ff(b0.y),x2:ff(b1.x),y2:ff(b1.y),stroke:"#ffb0d8","stroke-width":s%2?1:2.4,opacity:0.9},burst);}
     e2("circle",{cx:C,cy:C,r:34,fill:"url(#coreG)"},clip);})();
   // ===== CONCEPT LAYERS: daylight arc, star map, nakshatras, analemma, sunrise/sunset labels =====
@@ -2384,9 +2384,8 @@ function buildClock(){
     var discG=document.getElementById("gDisc");
     var now=new Date();
 
-    // ---- REAL SUNRISE/SUNSET compute (Portland ~45.52°N, ~122.68°W) ----
-    // Simple NOAA-style approximation, accurate within a few minutes.
-    var LAT=45.5231, LNG=-122.6765;
+    // ---- REAL SUNRISE/SUNSET compute (Portland ~45.52°N) ----
+    var LAT=45.5231;
     function sunTimes(d){
       var start=new Date(d.getFullYear(),0,0);
       var doy=Math.floor((d-start)/86400000);
@@ -2394,111 +2393,118 @@ function buildClock(){
       var decl=23.44*Math.PI/180*Math.sin(2*Math.PI*(doy-81)/365);
       var cosH=(-Math.tan(latRad)*Math.tan(decl));
       cosH=Math.max(-1,Math.min(1,cosH));
-      var H=Math.acos(cosH)*12/Math.PI; // hours from noon
-      // solar noon in local time ~ 12 - (LNG/15) adjusted for equation of time (skip EoT for simplicity)
-      var solarNoon=12 - LNG/15 - d.getTimezoneOffset()/60;
-      // wait — we want LOCAL clock time; use standard approximation
-      solarNoon=12; // close enough — user's local noon on their device clock
-      var rise=solarNoon-H, set=solarNoon+H;
-      return {rise:rise,set:set};
+      var H=Math.acos(cosH)*12/Math.PI;
+      var solarNoon=12;
+      return {rise:solarNoon-H,set:solarNoon+H};
     }
     var st=sunTimes(now);
     function fmtT(h){var hh=Math.floor(h);var mm=Math.round((h-hh)*60);if(mm===60){hh++;mm=0;}
-      var ampm=hh>=12?'PM':'AM';var h12=hh%12||12;return h12+':'+(mm<10?'0':'')+mm+' '+ampm;}
-    // ---- DAYLIGHT ARC on the clock face ----
-    // Clock is 12hr: convert hours to degrees (0h=top, 12/0=top, 6=bottom)
-    function hToDeg(h){return ((h%12)/12)*360;}
-    // Sunrise and sunset on 12hr clock — arc from rise to set through noon (top)
-    var riseA=hToDeg(st.rise), setA=hToDeg(st.set);
-    var arcG=e2("g",{"clip-path":"url(#faceClip)",opacity:"0.28"},faceG);
-    e2("path",{d:ringSector(riseA,setA,0,R_FACE),fill:"#ffd24a"},arcG);
-    // night portion violet
-    e2("path",{d:ringSector(setA,riseA+360,0,R_FACE),fill:"#4a1a80","fill-opacity":0.5},arcG);
-    // sunrise + sunset markers on the face
-    var riseP=pt(riseA,R_FACE-20);
-    var setP=pt(setA,R_FACE-20);
-    e2("circle",{cx:ff(riseP.x),cy:ff(riseP.y),r:5,fill:"#ffd24a",filter:"drop-shadow(0 0 8px #ffd24a)"},faceG);
-    e2("circle",{cx:ff(setP.x),cy:ff(setP.y),r:5,fill:"#b78bf0",filter:"drop-shadow(0 0 8px #b78bf0)"},faceG);
-    // labels
-    var riseL=pt(riseA,R_FACE-42);
-    var setL=pt(setA,R_FACE-42);
-    var rt=tx2(fmtT(st.rise),{x:ff(riseL.x),y:ff(riseL.y),"text-anchor":"middle","dominant-baseline":"central"},faceG);
-    rt.setAttribute("fill","#ffd24a");rt.setAttribute("font-size","13");rt.setAttribute("font-family","monospace");rt.setAttribute("font-weight","600");
-    var sst=tx2(fmtT(st.set),{x:ff(setL.x),y:ff(setL.y),"text-anchor":"middle","dominant-baseline":"central"},faceG);
-    sst.setAttribute("fill","#b78bf0");sst.setAttribute("font-size","13");sst.setAttribute("font-family","monospace");sst.setAttribute("font-weight","600");
+      var ampm=hh>=12?"PM":"AM";var h12=hh%12||12;return h12+":"+(mm<10?"0":"")+mm+" "+ampm;}
 
-    // ---- STAR MAP behind zodiac disc (more stars) ----
-    var starG=e2("g",{"clip-path":"url(#discClip)",opacity:"0.7"},discG);
+    // ---- 24hr semantics: noon at top, midnight at bottom ----
+    // angle = (h - 12) * 15  =>  0h=noon=top(0°), 6h=9pos(-90°), 18h=3pos(90°), 24h=6pos(180°)
+    function h24Deg(h){return (h-12)*15;}
+    var riseA=h24Deg(st.rise);   // negative angle, upper-left
+    var setA=h24Deg(st.set);     // positive angle, upper-right
+
+    // ---- DAYLIGHT ARC on the face ring (annulus r=145..258 so it's visible around the disc) ----
+    var R_IN=148, R_OUT=258;
+    // The daylight arc sweeps from sunrise angle THROUGH TOP (0°) to sunset angle.
+    // Use a normalized sweep from riseA to setA going the "short way" through the top.
+    function arcRing(a0,a1,rIn,rOut){
+      // Ensure a0 < a1 for correct sweep
+      var s=a0, e=a1;
+      var p0=pt(s,rOut), p1=pt(e,rOut), p2=pt(e,rIn), p3=pt(s,rIn);
+      var lg=(e-s)>180?1:0;
+      return "M "+ff(p0.x)+" "+ff(p0.y)+
+             " A "+rOut+" "+rOut+" 0 "+lg+" 1 "+ff(p1.x)+" "+ff(p1.y)+
+             " L "+ff(p2.x)+" "+ff(p2.y)+
+             " A "+rIn+" "+rIn+" 0 "+lg+" 0 "+ff(p3.x)+" "+ff(p3.y)+" Z";
+    }
+    // Day arc (top half, golden)
+    e2("path",{d:arcRing(riseA,setA,R_IN,R_OUT),fill:"#ffd24a","fill-opacity":0.22},faceG);
+    // Night arc (bottom half, violet) — from setA around to riseA+360
+    e2("path",{d:arcRing(setA,riseA+360,R_IN,R_OUT),fill:"#4a1a80","fill-opacity":0.32},faceG);
+    // Golden/violet marker circles at the boundaries
+    var riseP=pt(riseA,(R_IN+R_OUT)/2);
+    var setP=pt(setA,(R_IN+R_OUT)/2);
+    e2("circle",{cx:ff(riseP.x),cy:ff(riseP.y),r:6,fill:"#ffd24a",filter:"drop-shadow(0 0 10px #ffd24a)"},faceG);
+    e2("circle",{cx:ff(setP.x),cy:ff(setP.y),r:6,fill:"#b78bf0",filter:"drop-shadow(0 0 10px #b78bf0)"},faceG);
+    // Time labels outside the sun/moon markers
+    var riseL=pt(riseA,R_OUT+18);
+    var setL=pt(setA,R_OUT+18);
+    var rt=tx2(fmtT(st.rise),{x:ff(riseL.x),y:ff(riseL.y),"text-anchor":"middle","dominant-baseline":"central"},faceG);
+    rt.setAttribute("fill","#ffd24a");rt.setAttribute("font-size","14");rt.setAttribute("font-family","monospace");rt.setAttribute("font-weight","700");rt.setAttribute("filter","drop-shadow(0 0 4px #080318)");
+    var sst=tx2(fmtT(st.set),{x:ff(setL.x),y:ff(setL.y),"text-anchor":"middle","dominant-baseline":"central"},faceG);
+    sst.setAttribute("fill","#b78bf0");sst.setAttribute("font-size","14");sst.setAttribute("font-family","monospace");sst.setAttribute("font-weight","700");sst.setAttribute("filter","drop-shadow(0 0 4px #080318)");
+
+    // ---- STAR MAP behind zodiac disc (bright, many stars, constellation lines) ----
+    var starG=e2("g",{"clip-path":"url(#discClip)",opacity:"0.9"},discG);
     var starData=[];
-    for(var i=0;i<42;i++){
+    for(var i=0;i<52;i++){
       var ang=(i*137.5)%360;
-      var rad=25+((i*13)%110);
-      starData.push([ang,rad,i%4===0?2:i%3===0?1.4:0.8]);
+      var rad=22+((i*13)%115);
+      starData.push([ang,rad,i%4===0?2.2:i%3===0?1.5:0.9]);
     }
     starData.forEach(function(sc,idx){
       var p=pt(sc[0],sc[1]);
-      var star=e2("circle",{cx:ff(p.x),cy:ff(p.y),r:sc[2],fill:"#ffb0d8",opacity:"0.9"},starG);
-      star.innerHTML='<animate attributeName="opacity" values="0.3;1;0.3" dur="'+(2+idx%4)+'s" repeatCount="indefinite" begin="'+(idx*0.15)+'s"/>';
+      var star=e2("circle",{cx:ff(p.x),cy:ff(p.y),r:sc[2],fill:"#ffffff",opacity:"0.9"},starG);
+      star.innerHTML='<animate attributeName="opacity" values="0.35;1;0.35" dur="'+(2+idx%4)+'s" repeatCount="indefinite" begin="'+(idx*0.13)+'s"/>';
     });
-    // constellation lines - a few subtle connectors
-    var conn=[[[30,70],[60,80],[90,95]],[[200,70],[230,60],[260,85]],[[330,90],[300,110],[270,100]]];
+    // constellation connector lines
+    var conn=[[[25,80],[55,95],[85,110]],[[195,75],[225,60],[255,95]],[[320,90],[290,110],[265,115]],[[135,85],[160,105],[185,120]]];
     conn.forEach(function(line){
       for(var j=0;j<line.length-1;j++){
         var a=pt(line[j][0],line[j][1]),b=pt(line[j+1][0],line[j+1][1]);
-        e2("line",{x1:ff(a.x),y1:ff(a.y),x2:ff(b.x),y2:ff(b.y),stroke:"#8860a8","stroke-width":"0.4",opacity:"0.5"},starG);
+        e2("line",{x1:ff(a.x),y1:ff(a.y),x2:ff(b.x),y2:ff(b.y),stroke:"#8860a8","stroke-width":"0.6",opacity:"0.65"},starG);
       }
     });
 
-    // ---- NAKSHATRA RING (more visible) ----
+    // ---- NAKSHATRA RING (visible, glowing current one) ----
     var nksG=e2("g",{},document.getElementById("gDayRing").parentNode);
-    e2("circle",{cx:C,cy:C,r:R_MOON-14,fill:"none",stroke:"#3d1a80","stroke-width":1,opacity:0.7},nksG);
-    e2("circle",{cx:C,cy:C,r:R_MOON-4,fill:"none",stroke:"#3d1a80","stroke-width":0.5,opacity:0.5},nksG);
+    e2("circle",{cx:C,cy:C,r:R_MOON-16,fill:"none",stroke:"#3d1a80","stroke-width":1,opacity:0.7},nksG);
+    e2("circle",{cx:C,cy:C,r:R_MOON-4,fill:"none",stroke:"#3d1a80","stroke-width":0.6,opacity:0.55},nksG);
     var currentNks=Math.floor(((mAge(now)/SYN)*27))%27;
     for(var k=0;k<27;k++){
       var na=(k/27)*360;
-      var np0=pt(na,R_MOON-14),np1=pt(na,R_MOON-4);
+      var np0=pt(na,R_MOON-16),np1=pt(na,R_MOON-4);
       var isNow=k===currentNks;
       e2("line",{x1:ff(np0.x),y1:ff(np0.y),x2:ff(np1.x),y2:ff(np1.y),
-        stroke:isNow?"#ff2d9b":"#8860a8","stroke-width":isNow?2.5:0.9,opacity:isNow?1:0.7,
-        filter:isNow?"drop-shadow(0 0 4px #ff2d9b)":""},nksG);
+        stroke:isNow?"#ff2d9b":"#a880c8","stroke-width":isNow?3:1,opacity:isNow?1:0.75,
+        filter:isNow?"drop-shadow(0 0 5px #ff2d9b)":""},nksG);
     }
-    // Small marker circle at the current nakshatra
     var nkA=(currentNks/27)*360;
-    var nkP=pt(nkA,R_MOON-9);
-    var nkC=e2("circle",{cx:ff(nkP.x),cy:ff(nkP.y),r:3.5,fill:"#ff2d9b",filter:"drop-shadow(0 0 6px #ff2d9b)"},nksG);
-    nkC.innerHTML='<animate attributeName="r" values="3;4.5;3" dur="2.5s" repeatCount="indefinite"/>';
+    var nkP=pt(nkA,R_MOON-10);
+    var nkC=e2("circle",{cx:ff(nkP.x),cy:ff(nkP.y),r:4,fill:"#ff2d9b",filter:"drop-shadow(0 0 8px #ff2d9b)"},nksG);
+    nkC.innerHTML='<animate attributeName="r" values="3.5;5;3.5" dur="2.5s" repeatCount="indefinite"/>';
 
-    // ---- ANALEMMA figure-8 on the face ----
-    var anaG=e2("g",{"clip-path":"url(#faceClip)",opacity:"0.55"},faceG);
-    // The analemma is a figure-8 traced by the sun over the year.
-    // Draw it centered around noon (top of clock, angle 0) with vertical extent
-    // representing declination range.
-    var anaPath="M "+C+" "+(C-R_FACE+40)+
-      " C "+(C+30)+" "+(C-R_FACE+70)+", "+(C+40)+" "+(C-R_FACE+120)+", "+(C+20)+" "+C+
-      " C "+(C-5)+" "+(C+40)+", "+(C+25)+" "+(C+120)+", "+C+" "+(C+R_FACE-40)+
-      " C "+(C-25)+" "+(C+120)+", "+(C+5)+" "+(C+40)+", "+(C-20)+" "+C+
-      " C "+(C-40)+" "+(C-R_FACE+120)+", "+(C-30)+" "+(C-R_FACE+70)+", "+C+" "+(C-R_FACE+40)+" Z";
-    e2("path",{d:anaPath,fill:"none",stroke:"#ffd24a","stroke-width":"1.3","stroke-dasharray":"3 4",opacity:"0.7"},anaG);
-    // Solstice markers on the analemma (top = summer, bottom = winter)
-    e2("circle",{cx:C,cy:C-R_FACE+40,r:3,fill:"#ffb0d8",opacity:"0.8"},anaG);
-    e2("circle",{cx:C,cy:C+R_FACE-40,r:3,fill:"#b78bf0",opacity:"0.8"},anaG);
+    // ---- ANALEMMA figure-8 in the annular ring space (r 145..258), vertical, visible ----
+    var anaG=e2("g",{"clip-path":"url(#faceClip)",opacity:"0.75"},faceG);
+    var CY_TOP=C-238, CY_BOT=C+238, CY_MID=C;
+    // Vertical figure-8: narrow bowtie shape from top through center to bottom
+    var anaPath =
+      "M "+C+" "+CY_TOP+
+      " C "+(C+18)+" "+(CY_TOP+30)+", "+(C+30)+" "+(CY_TOP+70)+", "+(C+15)+" "+CY_MID+
+      " C "+(C-3)+" "+(CY_MID+35)+", "+(C+20)+" "+(CY_BOT-70)+", "+C+" "+CY_BOT+
+      " C "+(C-20)+" "+(CY_BOT-70)+", "+(C+3)+" "+(CY_MID+35)+", "+(C-15)+" "+CY_MID+
+      " C "+(C-30)+" "+(CY_TOP+70)+", "+(C-18)+" "+(CY_TOP+30)+", "+C+" "+CY_TOP+" Z";
+    e2("path",{d:anaPath,fill:"none",stroke:"#ffd24a","stroke-width":"1.6","stroke-dasharray":"4 5",opacity:"0.85"},anaG);
+    // Solstice markers (top = summer, bottom = winter)
+    e2("circle",{cx:C,cy:CY_TOP,r:3.5,fill:"#ffb0d8",opacity:"0.9"},anaG);
+    e2("circle",{cx:C,cy:CY_BOT,r:3.5,fill:"#b78bf0",opacity:"0.9"},anaG);
 
     // ---- TODAY'S SUN on the analemma ----
-    // Estimate sun's position on the figure-8 based on day of year
     var start=new Date(now.getFullYear(),0,0);
     var doy=Math.floor((now-start)/86400000);
-    var yr=doy/365;
-    // Declination approximation
     var decl=23.44*Math.sin(2*Math.PI*(doy-81)/365);
-    // EoT approximation (minutes)
     var B=2*Math.PI*(doy-81)/365;
     var eot=9.87*Math.sin(2*B)-7.53*Math.cos(B)-1.5*Math.sin(B);
-    var sunY=C - (decl/23.44)*(R_FACE-80);
-    var sunX=C + (eot/16)*35;
-    var sun=e2("circle",{cx:ff(sunX),cy:ff(sunY),r:7,fill:"#ffd24a",
-      filter:"drop-shadow(0 0 10px #ffd24a) drop-shadow(0 0 18px #ff9d24)"},anaG);
-    sun.innerHTML='<animate attributeName="r" values="6;8.5;6" dur="3s" repeatCount="indefinite"/>';
-    e2("circle",{cx:ff(sunX),cy:ff(sunY),r:2.5,fill:"#fff",opacity:"0.95"},anaG);
+    var sunY=C - (decl/23.44)*238;
+    var sunX=C + (eot/16)*25;
+    var sun=e2("circle",{cx:ff(sunX),cy:ff(sunY),r:8,fill:"#ffd24a",
+      filter:"drop-shadow(0 0 12px #ffd24a) drop-shadow(0 0 20px #ff9d24)"},anaG);
+    sun.innerHTML='<animate attributeName="r" values="7;9.5;7" dur="3s" repeatCount="indefinite"/>';
+    e2("circle",{cx:ff(sunX),cy:ff(sunY),r:3,fill:"#fff",opacity:"1"},anaG);
   })();
   (function(){var g=document.getElementById("gPointers");
     e2("line",{id:"pZod",x1:C,y1:C,x2:C,y2:C-116,stroke:"#8b78f0","stroke-width":2.6,"stroke-linecap":"round",opacity:0.95},g);
