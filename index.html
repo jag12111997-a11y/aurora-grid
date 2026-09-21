@@ -222,7 +222,6 @@
   <nav id="nav">
     <button data-view="home" class="on">HOME</button>
     <button data-view="quarters">QUARTERS</button>
-    <button data-view="wealth">WEALTH</button>
   </nav>
   <div class="clock-mini"><button id="ghSaveBtn" class="btn sm primary" style="display:none;margin-right:10px">\u2601 SAVE</button><span id="ghDot" title="github sync" style="display:none;width:8px;height:8px;border-radius:50%;background:#8860a8;margin-right:8px;vertical-align:middle"></span><b id="miniTime">--:--</b><div id="miniDate">—</div></div>
 </header>
@@ -234,6 +233,7 @@
       <button data-h="calendar" class="on">CALENDAR</button>
       <button data-h="health">HEALTH</button>
       <button data-h="manage">MANAGE</button>
+      <button data-h="wealth">WEALTH</button>
     </div>
 
     <div id="homeCalPane">
@@ -345,6 +345,10 @@
       </div>
       <div id="hBody"></div>
     </div>
+
+    <div id="homeWealthPane" style="display:none">
+      <div id="wBody"></div>
+    </div>
   </section>
 
   <!-- ============ REPORTS ============ -->
@@ -370,10 +374,6 @@
     <div id="qBody"></div>
   </section>
 
-  <!-- ============ WEALTH ============ -->
-  <section class="view" id="view-wealth">
-    <div id="wBody"></div>
-  </section>
 </main>
 
 <div class="scrim" id="scrim"><div class="modal" id="modal"></div></div>
@@ -948,7 +948,7 @@ function showView(v){ui.view=v;
   $$('.view').forEach(function(s){s.classList.toggle('on',s.id==='view-'+v);});
   setSetting('lastTab',v);
   if(v==='home'){renderHome();if(planetary&&planetary.ready())setTimeout(planetary.redraw,30);}
-  else if(v==='reports')renderReports();else if(v==='quarters')renderQuarters();else if(v==='wealth')renderWealth();}
+  else if(v==='reports')renderReports();else if(v==='quarters')renderQuarters();}
 
 function toast(msg){var t=$('#toast');t.textContent=msg;t.classList.add('on');
   clearTimeout(toast._t);toast._t=setTimeout(function(){t.classList.remove('on');},1900);}
@@ -958,16 +958,19 @@ function toast(msg){var t=$('#toast');t.textContent=msg;t.classList.add('on');
    ================================================================ */
 function renderHome(){
   $$('#hTabs button').forEach(function(b){b.classList.toggle('on',b.dataset.h===ui.homeTab);});
-  var cal=$('#homeCalPane'),rep=$('#homeReportPane');
+  var cal=$('#homeCalPane'),rep=$('#homeReportPane'),wlt=$('#homeWealthPane');
   if(ui.homeTab==='calendar'){
-    cal.style.display='';rep.style.display='none';
+    cal.style.display='';rep.style.display='none';wlt.style.display='none';
     renderToday();renderMonth();renderCelestial();
     $$('#calSummaryPanel button[data-csrange]').forEach(function(b){b.classList.toggle('on',b.dataset.csrange===ui.rRange);});
     var slbl=$('#summaryRangeLabel');if(slbl)slbl.textContent=rangeLabel();
     var cb=$('#calSummaryBody');if(cb){cb.innerHTML='';reportSummary(cb);}
     if(window.planetary&&planetary.ready())setTimeout(planetary.redraw,30);
+  }else if(ui.homeTab==='wealth'){
+    cal.style.display='none';rep.style.display='none';wlt.style.display='';
+    renderWealth();
   }else{
-    cal.style.display='none';rep.style.display='';
+    cal.style.display='none';rep.style.display='';wlt.style.display='none';
     $('#hRangeLabel').textContent=ui.rRange==='week'?'(current week, Sun\u2013Sat)':'('+MON[ui.calM]+' '+ui.calY+')';
     $$('#hRangeBar button').forEach(function(b){b.classList.toggle('on',b.dataset.hrange===ui.rRange);});
     var body=$('#hBody');body.innerHTML='';
@@ -1786,29 +1789,47 @@ function wipeAndSeed(){Promise.all(STORES.map(function(s){return repoClear(s);})
    ================================================================ */
 function renderWealth(){
   var body=$('#wBody');body.innerHTML='';
-  var accounts=state.wealthItems.filter(function(w){return w.type==='account';});
   var bills=state.wealthItems.filter(function(w){return w.type==='bill';});
   var savings=state.wealthItems.filter(function(w){return w.type==='savings';});
+  var balances=state.wealthItems.filter(function(w){return w.type==='balance';})
+    .sort(function(a,b){return a.date<b.date?-1:1;});
 
-  /* ---- ACCOUNTS ---- */
-  var acSec=el('div',{class:'panel',style:'margin-bottom:16px'});
-  acSec.appendChild(el('div',{class:'row',style:'align-items:center'},[
-    el('h3',{style:'letter-spacing:2px;color:var(--green);margin:0',text:'ACCOUNTS'}),
-    el('span',{class:'spacer'}),
-    el('button',{class:'btn sm primary',onclick:function(){openWealthModal('account');}},['+ ACCOUNT'])]));
-  if(accounts.length){
-    var totalBal=0;
-    var at=el('table',{style:'margin-top:10px'});at.appendChild(el('tr',{},[el('th',{text:'NAME'}),el('th',{text:'BALANCE'}),el('th',{text:'UPDATED'}),el('th',{text:''})]));
-    accounts.forEach(function(a){totalBal+=a.amount||0;
-      at.appendChild(el('tr',{},[el('td',{text:a.name}),
-        el('td',{style:'color:'+(a.amount>=0?'var(--green)':'var(--bad)'),text:'$'+fmtMoney(a.amount)}),
-        el('td',{html:'<span class="mini">'+(a.updatedAt?new Date(a.updatedAt).toLocaleDateString():'—')+'</span>'}),
-        el('td',{},[el('button',{class:'btn sm',onclick:(function(x){return function(){openWealthModal('account',x);};})(a)},['EDIT'])])]));});
-    at.appendChild(el('tr',{style:'border-top:2px solid var(--line)'},[el('td',{html:'<b>TOTAL</b>'}),
-      el('td',{style:'color:'+(totalBal>=0?'var(--green)':'var(--bad)'),html:'<b>$'+fmtMoney(totalBal)+'</b>'}),el('td'),el('td')]));
-    acSec.appendChild(at);
-  }else{acSec.appendChild(el('div',{class:'hint',style:'margin-top:8px'},['No accounts yet. Add one to start tracking balances.']));}
-  body.appendChild(acSec);
+  ui.wealthRange = ui.wealthRange || 'month';
+
+  /* ---- BALANCE HISTORY (candlestick) ---- */
+  var chSec=el('div',{class:'panel',style:'margin-bottom:16px'});
+  var chHead=el('div',{class:'row',style:'align-items:center;flex-wrap:wrap;gap:6px'});
+  chHead.appendChild(el('h3',{style:'letter-spacing:2px;color:var(--green);margin:0',text:'BALANCE HISTORY'}));
+  chHead.appendChild(el('span',{class:'spacer'}));
+  ['week','month','year'].forEach(function(r){
+    chHead.appendChild(el('button',{
+      class:'btn sm '+(ui.wealthRange===r?'on':''),
+      onclick:(function(rr){return function(){ui.wealthRange=rr;renderWealth();};})(r)
+    },[r.toUpperCase()+'LY']));
+  });
+  chHead.appendChild(el('button',{class:'btn sm primary',onclick:function(){openBalanceModal();}},['+ ENTRY']));
+  chHead.appendChild(el('button',{class:'btn sm',onclick:function(){openCsvModal();}},['CSV']));
+  chSec.appendChild(chHead);
+
+  var candles=groupBalancesToCandles(balances, ui.wealthRange);
+  if(!candles.length){
+    chSec.appendChild(el('div',{class:'hint',style:'margin-top:10px'},['No balance entries yet. Click + ENTRY to add one, or CSV to import history.']));
+  }else{
+    chSec.appendChild(renderCandleChart(candles));
+    var listWrap=el('div',{style:'margin-top:10px;max-height:120px;overflow-y:auto'});
+    var lt=el('table',{});
+    lt.appendChild(el('tr',{},[el('th',{text:'DATE'}),el('th',{text:'BALANCE'}),el('th',{text:''})]));
+    balances.slice().reverse().slice(0,20).forEach(function(b){
+      lt.appendChild(el('tr',{},[
+        el('td',{text:b.date}),
+        el('td',{style:'color:var(--green)',text:'$'+fmtMoney(b.amount)}),
+        el('td',{},[el('button',{class:'btn sm',onclick:(function(x){return function(){openBalanceModal(x);};})(b)},['EDIT'])])
+      ]));
+    });
+    listWrap.appendChild(lt);
+    chSec.appendChild(listWrap);
+  }
+  body.appendChild(chSec);
 
   /* ---- BILLS ---- */
   var blSec=el('div',{class:'panel',style:'margin-bottom:16px'});
@@ -1861,14 +1882,124 @@ function renderWealth(){
 
   /* ---- snapshot ---- */
   var snap=el('div',{class:'rgrid',style:'margin-top:8px'});
-  var tBal=accounts.reduce(function(s,a){return s+(a.amount||0);},0);
+  var currBal=balances.length?balances[balances.length-1].amount:0;
   var tBill=bills.reduce(function(s,b){return s+(b.amount||0);},0);
   var tSav=savings.reduce(function(s,v){return s+(v.amount||0);},0);
-  snap.appendChild(statCard('NET BALANCE','$'+fmtMoney(tBal),'',[]));
+  snap.appendChild(statCard('NET BALANCE','$'+fmtMoney(currBal),'',[]));
   snap.appendChild(statCard('MONTHLY BILLS','$'+fmtMoney(tBill),'',[]));
   snap.appendChild(statCard('TOTAL SAVINGS','$'+fmtMoney(tSav),'',[]));
-  snap.appendChild(statCard('AFTER BILLS','$'+fmtMoney(tBal-tBill),'',[]));
+  snap.appendChild(statCard('AFTER BILLS','$'+fmtMoney(currBal-tBill),'',[]));
   body.appendChild(snap);
+}
+
+function groupBalancesToCandles(balances,range){
+  if(!balances.length)return[];
+  var groups={};var order=[];
+  balances.forEach(function(b){
+    var d=new Date(b.date+'T00:00:00');
+    var k,lbl;
+    if(range==='week'){
+      var sun=new Date(d);sun.setDate(d.getDate()-d.getDay());
+      k=sun.getFullYear()+'-'+String(sun.getMonth()+1).padStart(2,'0')+'-'+String(sun.getDate()).padStart(2,'0');
+      lbl=String(sun.getMonth()+1).padStart(2,'0')+'/'+String(sun.getDate()).padStart(2,'0');
+    }else if(range==='month'){
+      k=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+      lbl=k;
+    }else{
+      k=String(d.getFullYear());
+      lbl=k;
+    }
+    if(!groups[k]){groups[k]={key:k,label:lbl,recs:[]};order.push(k);}
+    groups[k].recs.push(b);
+  });
+  order.sort();
+  return order.map(function(k){
+    var g=groups[k];
+    g.recs.sort(function(a,b){return a.date<b.date?-1:1;});
+    var amts=g.recs.map(function(r){return r.amount;});
+    return{
+      key:k,label:g.label,
+      open:amts[0],close:amts[amts.length-1],
+      high:Math.max.apply(null,amts),low:Math.min.apply(null,amts),
+      up:amts[amts.length-1]>=amts[0]
+    };
+  });
+}
+
+function renderCandleChart(candles){
+  var W=760,H=280,padL=54,padR=12,padT=16,padB=42;
+  var iw=W-padL-padR,ih=H-padT-padB;
+  var vals=[];candles.forEach(function(c){vals.push(c.high,c.low);});
+  var vmin=Math.min.apply(null,vals),vmax=Math.max.apply(null,vals);
+  if(vmin===vmax){vmin-=10;vmax+=10;}
+  var padV=(vmax-vmin)*0.12;vmin-=padV;vmax+=padV;
+  var y=function(v){return padT+ih*(1-(v-vmin)/(vmax-vmin));};
+  var n=candles.length,cw=iw/n,bw=Math.max(3,Math.min(22,cw*0.55));
+  var up='#4ade80',dn='#ff2d9b';
+  var s='<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:auto;display:block" xmlns="http://www.w3.org/2000/svg">';
+  var ticks=4;
+  for(var i=0;i<=ticks;i++){
+    var v=vmin+(vmax-vmin)*(i/ticks),yy=y(v);
+    s+='<line x1="'+padL+'" x2="'+(W-padR)+'" y1="'+yy+'" y2="'+yy+'" stroke="#2a1a3a" stroke-width="1"/>';
+    s+='<text x="'+(padL-6)+'" y="'+(yy+3)+'" fill="#8860a8" font-size="10" text-anchor="end" font-family="monospace">$'+Math.round(v).toLocaleString()+'</text>';
+  }
+  var step=Math.max(1,Math.ceil(n/8));
+  candles.forEach(function(c,idx){
+    var cx=padL+cw*(idx+0.5),col=c.up?up:dn;
+    s+='<line x1="'+cx+'" x2="'+cx+'" y1="'+y(c.high)+'" y2="'+y(c.low)+'" stroke="'+col+'" stroke-width="1.4"/>';
+    var yt=y(Math.max(c.open,c.close)),yb=y(Math.min(c.open,c.close)),bh=Math.max(1.5,yb-yt);
+    s+='<rect x="'+(cx-bw/2)+'" y="'+yt+'" width="'+bw+'" height="'+bh+'" fill="'+col+'" opacity="0.9"/>';
+    if(idx%step===0||idx===n-1){
+      s+='<text x="'+cx+'" y="'+(H-padB+18)+'" fill="#8860a8" font-size="10" text-anchor="middle" font-family="monospace">'+c.label+'</text>';
+    }
+  });
+  s+='</svg>';
+  var wrap=el('div',{style:'margin-top:12px;background:#0d0518;border:1px solid var(--line);border-radius:6px;padding:10px'});
+  wrap.innerHTML=s;
+  return wrap;
+}
+
+function openBalanceModal(existing){
+  var h=existing||null;
+  var date=el('input',{type:'date',value:h?h.date:todayYmd()});
+  var amount=el('input',{type:'number',step:'0.01',value:h?h.amount:'',placeholder:'balance ($)'});
+  var fields=[fld('Date',date),fld('Balance',amount)];
+  fields.push(el('div',{class:'modal-actions'},[
+    el('button',{class:'btn primary',onclick:function(){
+      if(!date.value){toast('DATE REQUIRED');return;}
+      var rec=h?JSON.parse(JSON.stringify(h)):{id:uid(),type:'balance'};
+      rec.date=date.value;rec.amount=+amount.value||0;rec.updatedAt=Date.now();
+      put('wealthItems',rec,true).then(function(){closeModal();renderWealth();toast('BALANCE SAVED');});
+    }},['SAVE']),
+    (h?el('button',{class:'btn danger',onclick:function(){remove('wealthItems',h.id,true).then(function(){closeModal();renderWealth();toast('BALANCE DELETED');});}},['DELETE']):null),
+    el('button',{class:'btn ghost',onclick:closeModal},['CANCEL'])
+  ]));
+  openModal(el('div',{},[el('h3',{text:h?'EDIT BALANCE':'NEW BALANCE ENTRY'})].concat(fields)));
+}
+
+function openCsvModal(){
+  var ta=el('textarea',{rows:'8',placeholder:'date,balance\n2026-01-15,5230.44\n2026-02-15,5410.00',style:'width:100%;font-family:monospace;font-size:12px'});
+  var fields=[
+    el('div',{class:'hint',style:'margin-bottom:6px'},['Two columns: date (YYYY-MM-DD), balance. Header row optional.']),
+    fld('CSV',ta)
+  ];
+  fields.push(el('div',{class:'modal-actions'},[
+    el('button',{class:'btn primary',onclick:function(){
+      var lines=ta.value.split(/\r?\n/).map(function(s){return s.trim();}).filter(Boolean);
+      var promises=[],added=0;
+      lines.forEach(function(ln){
+        var parts=ln.split(',').map(function(s){return s.trim();});
+        if(parts.length<2)return;
+        if(!/^\d{4}-\d{2}-\d{2}$/.test(parts[0]))return;
+        var amt=parseFloat(parts[1]);if(isNaN(amt))return;
+        var rec={id:uid(),type:'balance',date:parts[0],amount:amt,updatedAt:Date.now()};
+        promises.push(put('wealthItems',rec,false));added++;
+      });
+      Promise.all(promises).then(function(){closeModal();renderWealth();toast('IMPORTED '+added+' ENTRIES');});
+    }},['IMPORT']),
+    el('button',{class:'btn ghost',onclick:closeModal},['CANCEL'])
+  ]));
+  openModal(el('div',{},[el('h3',{text:'IMPORT BALANCES'})].concat(fields)));
 }
 function fmtMoney(n){n=n||0;var neg=n<0;n=Math.abs(n);var s=n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');return neg?'-'+s:s;}
 function openWealthModal(type,existing){
