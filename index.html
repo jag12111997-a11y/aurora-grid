@@ -134,6 +134,41 @@
   .cel-card .sub{color:var(--muted);font-size:12px;margin-top:4px}
   .cel-card .zsign{font-size:26px;color:var(--purple)}
   .moonrow{display:flex;gap:14px;align-items:center}
+  /* --- concept upgrades: glyph bg, chips, progress ring, phase strip, pips, starfield --- */
+  .cel-card{position:relative;overflow:hidden}
+  .cel-card .glyph-bg{position:absolute;right:-24px;top:-18px;font-size:180px;line-height:1;
+    color:var(--pink);opacity:0.055;font-family:serif;pointer-events:none;
+    filter:drop-shadow(0 0 30px var(--pink));user-select:none;z-index:0}
+  .cel-card .starfield{position:absolute;inset:0;pointer-events:none;overflow:hidden;border-radius:10px;z-index:0}
+  .cel-card .star{position:absolute;width:2px;height:2px;border-radius:50%;background:#ffb0d8;
+    animation:cel-twinkle 3.4s infinite ease-in-out;opacity:0.4}
+  .cel-card .star.p{background:var(--purple)}
+  @keyframes cel-twinkle{0%,100%{opacity:0.2;transform:scale(1)}50%{opacity:0.9;transform:scale(1.4)}}
+  .cel-card > *:not(.glyph-bg):not(.starfield){position:relative;z-index:1}
+  .cel-chips{display:flex;gap:5px;margin-top:8px;flex-wrap:wrap}
+  .cel-chip{background:#1a0e3a;border:1px solid var(--line2);border-radius:4px;
+    padding:3px 9px;font-size:9px;letter-spacing:2px;color:var(--purple);font-family:var(--mono)}
+  .cel-chip.pink{color:var(--pink);border-color:var(--green-dim)}
+  .cel-ring{display:inline-block;vertical-align:middle;margin-right:8px}
+  .cel-ring svg{display:block;transform:rotate(-90deg)}
+  .cel-pips{display:inline-flex;gap:3px;margin:0 6px;vertical-align:middle}
+  .cel-pip{width:5px;height:5px;border-radius:50%;background:#1a0e3a;border:1px solid var(--purple)}
+  .cel-pip.on{background:var(--purple);box-shadow:0 0 4px var(--purple)}
+  .cel-moon-halo{box-shadow:0 0 20px rgba(183,139,240,0.35)}
+  .phase-strip{display:flex;justify-content:space-between;margin-top:10px;padding:8px 2px 0;border-top:1px solid var(--line)}
+  .phase-strip > div{display:flex;flex-direction:column;align-items:center;gap:3px}
+  .ph-icon{width:18px;height:18px;border-radius:50%;background:#0d0625;border:1px solid var(--line2);
+    position:relative;overflow:hidden;opacity:0.45}
+  .ph-icon.on{opacity:1;box-shadow:0 0 10px var(--purple);border-color:var(--purple)}
+  .ph-icon .lit{position:absolute;inset:0;background:var(--purple);border-radius:50%}
+  .ph-0 .lit{clip-path:circle(0% at 50% 50%)}
+  .ph-1 .lit{clip-path:polygon(50% 0,100% 0,100% 100%,50% 100%);transform:scaleX(0.4);transform-origin:right}
+  .ph-2 .lit{clip-path:polygon(50% 0,100% 0,100% 100%,50% 100%)}
+  .ph-3 .lit{clip-path:polygon(50% 0,100% 0,100% 100%,50% 100%);transform:scaleX(1.6);transform-origin:right}
+  .ph-5 .lit{clip-path:polygon(0 0,50% 0,50% 100%,0 100%);transform:scaleX(1.6);transform-origin:left}
+  .ph-6 .lit{clip-path:polygon(0 0,50% 0,50% 100%,0 100%)}
+  .ph-7 .lit{clip-path:polygon(0 0,50% 0,50% 100%,0 100%);transform:scaleX(0.4);transform-origin:left}
+  .ph-label{color:var(--muted);font-size:8px;letter-spacing:1px}
   .moonface{width:52px;height:52px;border-radius:50%;flex:none;
     background:#0e0628;border:1px solid var(--line2);position:relative;overflow:hidden}
   /* ---- reports ---- */
@@ -252,19 +287,27 @@
       </svg></div>
       <div class="cel-info">
         <div class="cel-card">
+          <div class="glyph-bg" id="celGlyphBg">♍</div>
+          <div class="starfield" id="celStars1"></div>
           <div class="lbl">ZODIAC SEASON</div>
-          <div class="big"><span class="zsign" id="celZsym"></span> <span id="celZname">—</span></div>
-          <div class="sub" id="celZnext">—</div>
-          <div class="sub" id="celSeason" style="margin-top:6px"></div>
+          <div class="big" style="display:flex;align-items:center;gap:2px">
+            <span class="cel-ring" id="celRing"></span>
+            <span class="zsign" id="celZsym"></span>&nbsp;<span id="celZname">—</span>
+          </div>
+          <div class="cel-chips" id="celChips"></div>
+          <div class="sub" id="celZnext" style="margin-top:8px">—</div>
+          <div class="sub" id="celSeason" style="margin-top:2px"></div>
         </div>
         <div class="cel-card">
+          <div class="starfield" id="celStars2"></div>
           <div class="lbl">MOON</div>
           <div class="moonrow">
-            <div class="moonface"><svg viewBox="0 0 52 52" width="52" height="52"><circle cx="26" cy="26" r="24" fill="#0e0628" stroke="#3d1a80"/><path id="moonLit" d="" fill="#e8d0ff"/></svg></div>
+            <div class="moonface cel-moon-halo"><svg viewBox="0 0 52 52" width="52" height="52"><circle cx="26" cy="26" r="24" fill="#0e0628" stroke="#3d1a80"/><path id="moonLit" d="" fill="#e8d0ff"/></svg></div>
             <div><div class="big" id="celMoon" style="font-size:18px">—</div>
             <div class="sub" id="celMoonSub">—</div>
             <div class="sub" id="celMoonNext"></div></div>
           </div>
+          <div class="phase-strip" id="celPhaseStrip"></div>
         </div>
       </div>
     </div>
@@ -1128,16 +1171,70 @@ function renderCelestial(){
   var now=new Date();
   var zi=zodiacIndex(now),z=ZODIAC[zi];
   $('#celZsym').textContent=z[0];$('#celZname').textContent=z[1]+' SEASON';
+  $('#celGlyphBg').textContent=z[0];
   var nz=nextZodiac(now);
   $('#celZnext').textContent='Next: '+nz.sym+' '+nz.sign+' on '+nz.date.getDate()+' '+MONA[nz.date.getMonth()];
   $('#celSeason').textContent='Solar season: '+seasonName(now);
+  // season progress ring
+  var pct=zodiacProgress(now);
+  var C=15,circ=2*Math.PI*C,dashOff=circ*(1-pct/100);
+  $('#celRing').innerHTML='<svg width="34" height="34" viewBox="0 0 34 34">'+
+    '<circle cx="17" cy="17" r="'+C+'" fill="none" stroke="#3d1a80" stroke-width="2.5"/>'+
+    '<circle cx="17" cy="17" r="'+C+'" fill="none" stroke="#ff2d9b" stroke-width="2.5" stroke-linecap="round" '+
+    'stroke-dasharray="'+circ.toFixed(1)+'" stroke-dashoffset="'+dashOff.toFixed(1)+'" filter="drop-shadow(0 0 4px #ff2d9b)"/></svg>';
+  // chips: ruling planet, element, modality
+  var Z_META={ARIES:['♂ MARS','FIRE','CARDINAL'],TAURUS:['♀ VENUS','EARTH','FIXED'],GEMINI:['☿ MERCURY','AIR','MUTABLE'],
+    CANCER:['☽ MOON','WATER','CARDINAL'],LEO:['☉ SUN','FIRE','FIXED'],VIRGO:['☿ MERCURY','EARTH','MUTABLE'],
+    LIBRA:['♀ VENUS','AIR','CARDINAL'],SCORPIO:['♂ MARS','WATER','FIXED'],SAGITTARIUS:['♃ JUPITER','FIRE','MUTABLE'],
+    CAPRICORN:['♄ SATURN','EARTH','CARDINAL'],AQUARIUS:['♄ SATURN','AIR','FIXED'],PISCES:['♃ JUPITER','WATER','MUTABLE']};
+  var meta=Z_META[z[1]]||['','',''];
+  $('#celChips').innerHTML='<span class="cel-chip pink">'+meta[0]+'</span>'+
+    '<span class="cel-chip">'+meta[1]+'</span><span class="cel-chip">'+meta[2]+'</span>';
+  // starfields
+  spawnStars('celStars1',8);spawnStars('celStars2',6);
+  // moon
   var age=moonAge(now);
   $('#celMoon').textContent=moonPhaseName(age);
   $('#celMoonSub').textContent=Math.round(moonIllum(age)*100)+'% lit · day '+Math.floor(age)+'/29';
   var np=nextMoonPhase(now);
-  $('#celMoonNext').textContent='Next: '+np.name+' on '+np.date.getDate()+' '+MONA[np.date.getMonth()];
-  // mini moon face
+  var daysToNext=Math.max(0,Math.ceil((np.date-now)/86400000));
+  var pips='';for(var pi=0;pi<Math.max(daysToNext,5);pi++){pips+='<span class="cel-pip'+(pi<Math.max(0,5-daysToNext)?' on':'')+'"></span>';}
+  $('#celMoonNext').innerHTML='Next: '+np.name+' on '+np.date.getDate()+' '+MONA[np.date.getMonth()]+
+    ' <span class="cel-pips">'+pips+'</span>'+daysToNext+'d';
   drawMiniMoon(age/SYNODIC);
+  // phase strip: 8 icons, current lit
+  var phaseIdx=phaseSlot(age);
+  var labels=['NEW','WAX C','1st Q','WAX G','FULL','WAN G','3rd Q','WAN C'];
+  var strip='';
+  for(var i=0;i<8;i++){
+    var cls='ph-icon ph-'+i+(i===phaseIdx?' on':'');
+    var litHtml=i===4?'<div class="lit" style="clip-path:none"></div>':'<div class="lit"></div>';
+    strip+='<div><div class="'+cls+'">'+litHtml+'</div><div class="ph-label">'+labels[i]+'</div></div>';
+  }
+  $('#celPhaseStrip').innerHTML=strip;
+}
+function zodiacProgress(now){
+  var nz=nextZodiac(now);
+  var end=nz.date.getTime();
+  // find start of current sign by rewinding ~35 days and finding last transition
+  var probe=new Date(now.getTime()-35*86400000);
+  while(probe<now){var pn=nextZodiac(probe);if(pn.date<=now){probe=new Date(pn.date.getTime()+1);}else break;}
+  var start=probe.getTime()-1;
+  var span=end-start;if(span<=0)return 0;
+  return Math.max(0,Math.min(100,Math.round((now.getTime()-start)/span*100)));
+}
+function phaseSlot(age){
+  if(age<1.85)return 0;if(age<5.54)return 1;if(age<9.23)return 2;if(age<12.92)return 3;
+  if(age<16.61)return 4;if(age<20.30)return 5;if(age<23.99)return 6;if(age<27.68)return 7;return 0;
+}
+function spawnStars(id,n){
+  var el=$('#'+id);if(!el)return;var s='';
+  for(var i=0;i<n;i++){
+    var x=Math.floor(Math.random()*90+5),y=Math.floor(Math.random()*85+5);
+    var p=Math.random()>0.6?' p':'';var d=(Math.random()*3).toFixed(1);
+    s+='<div class="star'+p+'" style="left:'+x+'%;top:'+y+'%;animation-delay:'+d+'s"></div>';
+  }
+  el.innerHTML=s;
 }
 function drawMiniMoon(phase){
   var cx=26,cy=26,r=24;var cosA=Math.cos(2*Math.PI*phase);var rx=Math.abs(cosA)*r;
@@ -2271,6 +2368,38 @@ function buildClock(){
     var burst=e2("g",{},clip);for(var s=0;s<48;s++){var len=46+(s%3)*16;var b0=pt(s*7.5,6),b1=pt(s*7.5,len);
       e2("line",{x1:ff(b0.x),y1:ff(b0.y),x2:ff(b1.x),y2:ff(b1.y),stroke:"#ffb0d8","stroke-width":s%2?1:2.4,opacity:0.9},burst);}
     e2("circle",{cx:C,cy:C,r:34,fill:"url(#coreG)"},clip);})();
+  // ===== CONCEPT LAYERS: starfield behind zodiac, nakshatra dots, today sun =====
+  (function(){
+    var g=document.getElementById("gDisc");
+    // twinkling stars scattered in the disc (subtle)
+    var starG=e2("g",{"clip-path":"url(#discClip)",opacity:"0.55"},g);
+    var starCoords=[[0,55],[45,75],[90,100],[135,60],[180,80],[225,95],[270,70],[315,50],
+                    [30,110],[75,90],[120,120],[165,85],[210,105],[255,110],[300,90],[345,115]];
+    starCoords.forEach(function(sc,idx){
+      var p=pt(sc[0],sc[1]);
+      var star=e2("circle",{cx:ff(p.x),cy:ff(p.y),r:idx%3===0?1.4:0.9,fill:"#ffb0d8",opacity:"0.7"},starG);
+      star.innerHTML='<animate attributeName="opacity" values="0.3;1;0.3" dur="'+(2.5+idx%3)+'s" repeatCount="indefinite" begin="'+(idx*0.2)+'s"/>';
+    });
+    // nakshatra tick ring between day ring and moon ring
+    var nksG=e2("g",{},document.getElementById("gDayRing").parentNode);
+    e2("circle",{cx:C,cy:C,r:319,fill:"none",stroke:"#3d1a80","stroke-width":0.4,opacity:0.5},nksG);
+    for(var i=0;i<27;i++){
+      var a=(i/27)*360;
+      var p0=pt(a,316),p1=pt(a,322);
+      var currentNks=Math.floor(((mAge(new Date())/SYN)*27))%27;
+      var isNow=i===currentNks;
+      e2("line",{x1:ff(p0.x),y1:ff(p0.y),x2:ff(p1.x),y2:ff(p1.y),
+        stroke:isNow?"#ff2d9b":"#8860a8","stroke-width":isNow?1.8:0.6,opacity:isNow?1:0.55,
+        filter:isNow?"drop-shadow(0 0 3px #ff2d9b)":""},nksG);
+    }
+    // today's sun — small golden dot on the pink face at today's zodiac position
+    var faceG=document.getElementById("gFace");
+    var now=new Date();
+    var sunAng=dAng(now.getMonth(),now.getDate());
+    var sp=pt(sunAng,228);
+    var sun=e2("circle",{cx:ff(sp.x),cy:ff(sp.y),r:5,fill:"#ffd24a",filter:"drop-shadow(0 0 8px #ffd24a) drop-shadow(0 0 14px #ff9d24)"},faceG);
+    sun.innerHTML='<animate attributeName="r" values="4.5;6;4.5" dur="3s" repeatCount="indefinite"/>';
+  })();
   (function(){var g=document.getElementById("gPointers");
     e2("line",{id:"pZod",x1:C,y1:C,x2:C,y2:C-116,stroke:"#8b78f0","stroke-width":2.6,"stroke-linecap":"round",opacity:0.95},g);
     e2("line",{id:"pDay",x1:C,y1:C,x2:C,y2:C-298,stroke:"#8b78f0","stroke-width":2.4,"stroke-linecap":"round",opacity:0.9},g);
