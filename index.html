@@ -269,6 +269,7 @@
       <button data-h="health">HEALTH</button>
       <button data-h="manage">MANAGE</button>
       <button data-h="wealth">WEALTH</button>
+      <button data-h="journal">JOURNAL</button>
     </div>
 
     <div id="homeCalPane">
@@ -391,6 +392,10 @@
 
     <div id="homeWealthPane" style="display:none">
       <div id="wBody"></div>
+    </div>
+
+    <div id="homeJournalPane" style="display:none">
+      <div id="jBody"></div>
     </div>
   </section>
 
@@ -752,9 +757,9 @@ var CAT_COLOR={work:'#ff2d9b',sleep:'#4a8aff',nap:'#4a8aff',workout:'#ffd24a',re
    DATA LAYER  —  IndexedDB with a thin repository abstraction.
    Everything loads into `state` on boot; writes persist per-record.
    ================================================================ */
-var DB_NAME='omani_life_os', DB_VER=2;
-var STORES=['routines','overrides','events','actuals','healthItems','wealthItems','settings','audit'];
-var DATA_STORES=['routines','overrides','events','actuals','healthItems','wealthItems','audit'];
+var DB_NAME='omani_life_os', DB_VER=3;
+var STORES=['routines','overrides','events','actuals','healthItems','wealthItems','journalEntries','todos','projects','settings','audit'];
+var DATA_STORES=['routines','overrides','events','actuals','healthItems','wealthItems','journalEntries','todos','projects','audit'];
 var db=null;
 function openDB(){return new Promise(function(res,rej){
   var rq=indexedDB.open(DB_NAME,DB_VER);
@@ -774,7 +779,7 @@ function repoClear(store){return new Promise(function(res,rej){var r=tx(store,'r
   r.onsuccess=function(){if(!_ghApplying&&store!=='settings')ghMarkDirty();res();};r.onerror=function(){rej(r.error);};});}
 
 /* in-memory mirror */
-var state={routines:[],overrides:[],events:[],actuals:[],healthItems:[],wealthItems:[],audit:[],settings:{}};
+var state={routines:[],overrides:[],events:[],actuals:[],healthItems:[],wealthItems:[],journalEntries:[],todos:[],projects:[],audit:[],settings:{}};
 function loadAll(){return Promise.all(STORES.map(function(s){return repoAll(s).then(function(rows){
   if(s==='settings'){state.settings={};rows.forEach(function(r){state.settings[r.key]=r.value;});}
   else state[s]=rows;});}));}
@@ -1001,19 +1006,22 @@ function toast(msg){var t=$('#toast');t.textContent=msg;t.classList.add('on');
    ================================================================ */
 function renderHome(){
   $$('#hTabs button').forEach(function(b){b.classList.toggle('on',b.dataset.h===ui.homeTab);});
-  var cal=$('#homeCalPane'),rep=$('#homeReportPane'),wlt=$('#homeWealthPane');
+  var cal=$('#homeCalPane'),rep=$('#homeReportPane'),wlt=$('#homeWealthPane'),jrn=$('#homeJournalPane');
   if(ui.homeTab==='calendar'){
-    cal.style.display='';rep.style.display='none';wlt.style.display='none';
+    cal.style.display='';rep.style.display='none';wlt.style.display='none';jrn.style.display='none';
     renderToday();renderMonth();renderCelestial();
     $$('#calSummaryPanel button[data-csrange]').forEach(function(b){b.classList.toggle('on',b.dataset.csrange===ui.rRange);});
     var slbl=$('#summaryRangeLabel');if(slbl)slbl.textContent=rangeLabel();
     var cb=$('#calSummaryBody');if(cb){cb.innerHTML='';reportSummary(cb);}
     if(window.planetary&&planetary.ready())setTimeout(planetary.redraw,30);
   }else if(ui.homeTab==='wealth'){
-    cal.style.display='none';rep.style.display='none';wlt.style.display='';
+    cal.style.display='none';rep.style.display='none';wlt.style.display='';jrn.style.display='none';
     renderWealth();
+  }else if(ui.homeTab==='journal'){
+    cal.style.display='none';rep.style.display='none';wlt.style.display='none';jrn.style.display='';
+    renderJournal();
   }else{
-    cal.style.display='none';rep.style.display='';wlt.style.display='none';
+    cal.style.display='none';rep.style.display='';wlt.style.display='none';jrn.style.display='none';
     $('#hRangeLabel').textContent=ui.rRange==='week'?'(current week, Sun\u2013Sat)':'('+MON[ui.calM]+' '+ui.calY+')';
     $$('#hRangeBar button').forEach(function(b){b.classList.toggle('on',b.dataset.hrange===ui.rRange);});
     var body=$('#hBody');body.innerHTML='';
@@ -1876,7 +1884,7 @@ function doRestore(data){
   }).then(loadAll).then(function(){closeModal();renderReports();renderHome();toast('DATA RESTORED');});
 }
 function wipeAndSeed(){Promise.all(STORES.map(function(s){return repoClear(s);})).then(function(){
-  state.routines=[];state.overrides=[];state.events=[];state.actuals=[];state.healthItems=[];state.audit=[];state.settings={};
+  state.routines=[];state.overrides=[];state.events=[];state.actuals=[];state.healthItems=[];state.journalEntries=[];state.todos=[];state.projects=[];state.audit=[];state.settings={};
   return seed();}).then(loadAll).then(function(){closeModal();renderHome();renderReports();toast('RESET & RESEEDED');});}
 
 /* ================================================================
@@ -2775,6 +2783,159 @@ function boot(){
     document.querySelector('main').innerHTML='<div class="panel" style="margin:40px auto;max-width:520px"><h2>STORAGE ERROR</h2><div class="hint">This browser blocked local storage (IndexedDB). If you are in private-browsing mode, try a normal window. Error: '+(err&&err.message||err)+'</div></div>';
   });
 }
+
+/* ================================================================
+   JOURNAL TAB — daily entries + quick to-dos + projects
+   ================================================================ */
+function renderJournal(){
+  var body=$('#jBody');body.innerHTML='';
+  var grid=el('div',{class:'grid',style:'grid-template-columns:1fr 1fr;gap:16px'});
+  grid.appendChild(journalEntryCard());
+  grid.appendChild(todosCard());
+  body.appendChild(grid);
+  body.appendChild(projectsCard());
+}
+function journalEntryCard(){
+  var card=el('div',{class:'card'});
+  card.appendChild(el('h3',{style:'letter-spacing:2px;color:var(--pink);margin:0 0 10px',text:'JOURNAL ENTRY'}));
+  var ta=el('textarea',{id:'jNewEntry',placeholder:'What is on your mind today...',style:'width:100%;min-height:140px;background:#0d0625;color:#fff;border:1px solid #3a1f6b;border-radius:8px;padding:10px;font-family:inherit;font-size:14px;resize:vertical'});
+  card.appendChild(ta);
+  var row=el('div',{class:'row',style:'margin-top:8px;justify-content:flex-end'});
+  row.appendChild(el('button',{class:'btn sm primary',text:'+ SAVE ENTRY',onclick:saveJournalEntry}));
+  card.appendChild(row);
+  card.appendChild(el('h4',{style:'letter-spacing:2px;color:var(--pink);margin:16px 0 8px;font-size:12px',text:'PAST ENTRIES'}));
+  var list=el('div',{id:'jEntriesList'});
+  var entries=(state.journalEntries||[]).slice().sort(function(a,b){return b.ts-a.ts;});
+  if(!entries.length)list.appendChild(el('div',{class:'hint',text:'No entries yet.'}));
+  entries.forEach(function(e){
+    var d=new Date(e.ts);
+    var item=el('div',{style:'border:1px solid #3a1f6b;border-radius:8px;padding:10px;margin-bottom:8px;background:#170a35'});
+    var head=el('div',{class:'row',style:'justify-content:space-between;margin-bottom:6px'});
+    head.appendChild(el('b',{style:'color:var(--pink);font-size:12px;letter-spacing:1px',text:DOW[d.getDay()]+' · '+d.getDate()+' '+MONA[d.getMonth()]+' '+d.getFullYear()+' · '+pad(d.getHours())+':'+pad(d.getMinutes())}));
+    head.appendChild(el('button',{class:'btn sm',style:'font-size:10px',text:'DELETE',onclick:function(){deleteJournalEntry(e.id);}}));
+    item.appendChild(head);
+    item.appendChild(el('div',{style:'white-space:pre-wrap;font-size:13px;color:#e0d8f0',text:e.text}));
+    list.appendChild(item);
+  });
+  card.appendChild(list);
+  return card;
+}
+function saveJournalEntry(){
+  var ta=$('#jNewEntry');var text=(ta.value||'').trim();
+  if(!text)return;
+  var e={id:uid(),ts:Date.now(),text:text};
+  state.journalEntries.push(e);repoPut('journalEntries',e);
+  renderJournal();
+}
+function deleteJournalEntry(id){
+  state.journalEntries=state.journalEntries.filter(function(x){return x.id!==id;});
+  repoDel('journalEntries',id);renderJournal();
+}
+function todosCard(){
+  var card=el('div',{class:'card'});
+  card.appendChild(el('h3',{style:'letter-spacing:2px;color:var(--pink);margin:0 0 10px',text:'QUICK TO-DO'}));
+  var row=el('div',{class:'row',style:'margin-bottom:10px'});
+  var input=el('input',{id:'jNewTodo',type:'text',placeholder:'add a task and press enter',style:'flex:1;background:#0d0625;color:#fff;border:1px solid #3a1f6b;border-radius:8px;padding:8px;font-family:inherit'});
+  input.addEventListener('keydown',function(e){if(e.key==='Enter')addTodo();});
+  row.appendChild(input);
+  row.appendChild(el('button',{class:'btn sm primary',text:'+ ADD',onclick:addTodo}));
+  card.appendChild(row);
+  var list=el('div',{id:'jTodosList'});
+  var todos=(state.todos||[]).slice().sort(function(a,b){return (a.done?1:0)-(b.done?1:0)||b.ts-a.ts;});
+  if(!todos.length)list.appendChild(el('div',{class:'hint',text:'Nothing on the list yet.'}));
+  todos.forEach(function(t){
+    var item=el('div',{class:'row',style:'border:1px solid #3a1f6b;border-radius:8px;padding:8px 10px;margin-bottom:6px;background:'+(t.done?'#0d0625':'#170a35')});
+    var cb=el('input',{type:'checkbox',style:'margin-right:8px;accent-color:#ff2d9b'});
+    cb.checked=!!t.done;
+    cb.addEventListener('change',function(){toggleTodo(t.id);});
+    item.appendChild(cb);
+    item.appendChild(el('div',{style:'flex:1;font-size:13px;color:'+(t.done?'#7a6a9a':'#e0d8f0')+';text-decoration:'+(t.done?'line-through':'none'),text:t.text}));
+    item.appendChild(el('button',{class:'btn sm',style:'font-size:10px',text:'DELETE',onclick:function(){deleteTodo(t.id);}}));
+    list.appendChild(item);
+  });
+  card.appendChild(list);
+  return card;
+}
+function addTodo(){
+  var i=$('#jNewTodo');var text=(i.value||'').trim();if(!text)return;
+  var t={id:uid(),ts:Date.now(),text:text,done:false};
+  state.todos.push(t);repoPut('todos',t);renderJournal();
+}
+function toggleTodo(id){
+  var t=state.todos.filter(function(x){return x.id===id;})[0];if(!t)return;
+  t.done=!t.done;repoPut('todos',t);renderJournal();
+}
+function deleteTodo(id){
+  state.todos=state.todos.filter(function(x){return x.id!==id;});
+  repoDel('todos',id);renderJournal();
+}
+function projectsCard(){
+  var card=el('div',{class:'card',style:'margin-top:16px'});
+  var head=el('div',{class:'row',style:'justify-content:space-between;margin-bottom:10px'});
+  head.appendChild(el('h3',{style:'letter-spacing:2px;color:var(--pink);margin:0',text:'PROJECTS'}));
+  head.appendChild(el('button',{class:'btn sm primary',text:'+ NEW PROJECT',onclick:addProject}));
+  card.appendChild(head);
+  var projects=(state.projects||[]).slice().sort(function(a,b){return b.ts-a.ts;});
+  if(!projects.length){card.appendChild(el('div',{class:'hint',text:'No projects yet. Track anything you are building that does not belong on your calendar.'}));return card;}
+  var grid=el('div',{class:'grid',style:'grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px'});
+  projects.forEach(function(p){grid.appendChild(projectBlock(p));});
+  card.appendChild(grid);
+  return card;
+}
+function projectBlock(p){
+  var tasks=p.tasks||[];
+  var done=tasks.filter(function(t){return t.done;}).length;
+  var block=el('div',{style:'border:1px solid #3a1f6b;border-radius:10px;padding:12px;background:#170a35'});
+  var head=el('div',{class:'row',style:'justify-content:space-between;margin-bottom:8px'});
+  head.appendChild(el('b',{style:'color:var(--pink);letter-spacing:1px;font-size:13px',text:p.name}));
+  head.appendChild(el('button',{class:'btn sm',style:'font-size:10px',text:'✕',onclick:function(){deleteProject(p.id);}}));
+  block.appendChild(head);
+  block.appendChild(el('div',{class:'hint',style:'margin-bottom:8px',text:done+' / '+tasks.length+' done'}));
+  tasks.forEach(function(t){
+    var row=el('div',{class:'row',style:'margin-bottom:4px'});
+    var cb=el('input',{type:'checkbox',style:'margin-right:6px;accent-color:#ff2d9b'});
+    cb.checked=!!t.done;
+    cb.addEventListener('change',function(){toggleProjectTask(p.id,t.id);});
+    row.appendChild(cb);
+    row.appendChild(el('div',{style:'flex:1;font-size:12px;color:'+(t.done?'#7a6a9a':'#e0d8f0')+';text-decoration:'+(t.done?'line-through':'none'),text:t.text}));
+    row.appendChild(el('button',{class:'btn sm',style:'font-size:9px',text:'✕',onclick:function(){deleteProjectTask(p.id,t.id);}}));
+    block.appendChild(row);
+  });
+  var addRow=el('div',{class:'row',style:'margin-top:8px'});
+  var inp=el('input',{type:'text',placeholder:'add task',style:'flex:1;background:#0d0625;color:#fff;border:1px solid #3a1f6b;border-radius:6px;padding:6px;font-family:inherit;font-size:12px'});
+  inp.addEventListener('keydown',function(e){if(e.key==='Enter'){addProjectTask(p.id,inp.value);}});
+  addRow.appendChild(inp);
+  addRow.appendChild(el('button',{class:'btn sm',style:'font-size:10px',text:'+',onclick:function(){addProjectTask(p.id,inp.value);}}));
+  block.appendChild(addRow);
+  return block;
+}
+function addProject(){
+  var name=prompt('Project name:');if(!name)return;
+  var p={id:uid(),ts:Date.now(),name:name.trim(),tasks:[]};
+  state.projects.push(p);repoPut('projects',p);renderJournal();
+}
+function deleteProject(id){
+  if(!confirm('Delete this project and its tasks?'))return;
+  state.projects=state.projects.filter(function(x){return x.id!==id;});
+  repoDel('projects',id);renderJournal();
+}
+function addProjectTask(pid,text){
+  text=(text||'').trim();if(!text)return;
+  var p=state.projects.filter(function(x){return x.id===pid;})[0];if(!p)return;
+  p.tasks=p.tasks||[];p.tasks.push({id:uid(),text:text,done:false});
+  repoPut('projects',p);renderJournal();
+}
+function toggleProjectTask(pid,tid){
+  var p=state.projects.filter(function(x){return x.id===pid;})[0];if(!p)return;
+  var t=(p.tasks||[]).filter(function(x){return x.id===tid;})[0];if(!t)return;
+  t.done=!t.done;repoPut('projects',p);renderJournal();
+}
+function deleteProjectTask(pid,tid){
+  var p=state.projects.filter(function(x){return x.id===pid;})[0];if(!p)return;
+  p.tasks=(p.tasks||[]).filter(function(x){return x.id!==tid;});
+  repoPut('projects',p);renderJournal();
+}
+
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 
 })();
