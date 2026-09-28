@@ -1925,18 +1925,7 @@ function renderWealth(){
     chSec.appendChild(el('div',{class:'hint',style:'margin-top:10px'},['No balance entries yet. Click + ENTRY to add one, or CSV to import history.']));
   }else{
     chSec.appendChild(renderCandleChart(candles));
-    var listWrap=el('div',{style:'margin-top:10px;max-height:120px;overflow-y:auto'});
-    var lt=el('table',{});
-    lt.appendChild(el('tr',{},[el('th',{text:'DATE'}),el('th',{text:'BALANCE'}),el('th',{text:''})]));
-    balances.slice().reverse().slice(0,20).forEach(function(b){
-      lt.appendChild(el('tr',{},[
-        el('td',{text:b.date}),
-        el('td',{style:'color:var(--green)',text:'$'+fmtMoney(b.amount)}),
-        el('td',{},[el('button',{class:'btn sm',onclick:(function(x){return function(){openBalanceModal(x);};})(b)},['EDIT'])])
-      ]));
-    });
-    listWrap.appendChild(lt);
-    chSec.appendChild(listWrap);
+    chSec.appendChild(snapLogList('balance','BALANCE','var(--green)',function(x){openBalanceModal(x);}));
   }
   body.appendChild(chSec);
 
@@ -2150,7 +2139,8 @@ function openBalanceModal(existing){
   openModal(el('div',{},[el('h3',{text:h?'EDIT BALANCE':'NEW BALANCE ENTRY'})].concat(fields)));
 }
 function monLabel(mk){var p=mk.split('-');return MONA[(+p[1])-1]+' '+p[0];}
-function snapLogList(type,label,color){
+function snapLogList(type,label,color,editFn){
+  editFn=editFn||function(x){openSnapModal(type,x);};
   var wrap=el('div',{style:'margin-top:10px'});
   var rows=state.wealthItems.filter(function(t){return t.type===type;}).slice().sort(function(a,b){return a.date<b.date?1:-1;});
   var months=[];rows.forEach(function(r){var mk=r.date.slice(0,7);if(months.indexOf(mk)<0)months.push(mk);});
@@ -2174,7 +2164,7 @@ function snapLogList(type,label,color){
     t.appendChild(el('tr',{},[
       el('td',{text:r.date+(r.manual?'  (edited)':'')}),
       el('td',{style:'color:'+color,text:'$'+fmtMoney(r.amount)}),
-      el('td',{},[el('button',{class:'btn sm',onclick:(function(x){return function(){openSnapModal(type,x);};})(r)},['EDIT'])])
+      el('td',{},[el('button',{class:'btn sm',onclick:(function(x){return function(){editFn(x);};})(r)},['EDIT'])])
     ]));
   });
   scroll.appendChild(t);wrap.appendChild(scroll);
