@@ -1908,7 +1908,7 @@ function renderWealth(){
   var chHead=el('div',{class:'row',style:'align-items:center;flex-wrap:wrap;gap:6px'});
   chHead.appendChild(el('h3',{style:'letter-spacing:2px;color:var(--green);margin:0',text:'BALANCE HISTORY'}));
   chHead.appendChild(el('span',{class:'spacer'}));
-  ['week','month','year'].forEach(function(r){
+  ['week','month','quarter','year'].forEach(function(r){
     chHead.appendChild(el('button',{
       class:'btn sm '+(ui.wealthRange===r?'on':''),
       onclick:(function(rr){return function(){ui.wealthRange=rr;renderWealth();};})(r)
@@ -2011,6 +2011,10 @@ function groupBalancesToCandles(balances,range){
       lbl=String(sun.getMonth()+1).padStart(2,'0')+'/'+String(sun.getDate()).padStart(2,'0');
     }else if(range==='month'){
       k=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+      lbl=k;
+    }else if(range==='quarter'){
+      var q=Math.floor(d.getMonth()/3)+1;
+      k=d.getFullYear()+'-Q'+q;
       lbl=k;
     }else{
       k=String(d.getFullYear());
