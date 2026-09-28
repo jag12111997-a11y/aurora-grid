@@ -2719,10 +2719,15 @@ function todosCard(){
   row.appendChild(el('button',{class:'btn sm primary',text:'+ ADD',onclick:addTodo}));
   card.appendChild(row);
   var list=el('div',{id:'jTodosList'});
-  var todos=(state.todos||[]).slice().sort(function(a,b){return (a.done?1:0)-(b.done?1:0)||b.ts-a.ts;});
+  var todos=(state.todos||[]).slice().sort(function(a,b){return (a.done?1:0)-(b.done?1:0)||a.ts-b.ts;});
   if(!todos.length)list.appendChild(el('div',{class:'hint',text:'Nothing on the list yet.'}));
+  var PRIO={green:'#35d07f',yellow:'#ffcf3f',red:'#ff4d4d'};
   todos.forEach(function(t){
     var item=el('div',{class:'row',style:'border:1px solid #3a1f6b;border-radius:8px;padding:8px 10px;margin-bottom:6px;background:'+(t.done?'#0d0625':'#170a35')});
+    var dotColor=PRIO[t.color]||'transparent';
+    var dot=el('button',{title:'priority: '+(t.color||'none')+' — click to change',style:'width:16px;height:16px;min-width:16px;border-radius:50%;margin-right:10px;cursor:pointer;padding:0;background:'+dotColor+';border:2px solid '+(t.color?dotColor:'#5a4a7a')});
+    dot.addEventListener('click',function(){cycleTodoColor(t.id);});
+    item.appendChild(dot);
     var cb=el('input',{type:'checkbox',style:'margin-right:8px;accent-color:#ff2d9b'});
     cb.checked=!!t.done;
     cb.addEventListener('change',function(){toggleTodo(t.id);});
@@ -2736,8 +2741,15 @@ function todosCard(){
 }
 function addTodo(){
   var i=$('#jNewTodo');var text=(i.value||'').trim();if(!text)return;
-  var t={id:uid(),ts:Date.now(),text:text,done:false};
+  var t={id:uid(),ts:Date.now(),text:text,done:false,color:null};
   state.todos.push(t);repoPut('todos',t);renderJournal();
+}
+function cycleTodoColor(id){
+  var t=state.todos.filter(function(x){return x.id===id;})[0];if(!t)return;
+  var order=[null,'green','yellow','red'];
+  var idx=order.indexOf(t.color||null);
+  t.color=order[(idx+1)%order.length];
+  repoPut('todos',t);renderJournal();
 }
 function toggleTodo(id){
   var t=state.todos.filter(function(x){return x.id===id;})[0];if(!t)return;
