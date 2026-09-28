@@ -990,7 +990,7 @@ function holidayOn(dstr){var y=+dstr.slice(0,4);return holidaysFor(y)[dstr]||nul
    ================================================================ */
 var ui={view:'home', selDate:todayYmd(), calY:new Date().getFullYear(), calM:new Date().getMonth(),
         homeTab:'calendar', rTab:'summary', rRange:'week', qKey:'2026-Q3', weekOffset:0, monthOffset:0,
-        wealthRange:'month', billsRange:'month', savingsRange:'month'};
+        wealthRange:'month', billsRange:'month', savingsRange:'month', logMonth:{}};
 
 function showView(v){ui.view=v;
   $$('#nav button').forEach(function(b){b.classList.toggle('on',b.dataset.view===v);});
@@ -2149,20 +2149,35 @@ function openBalanceModal(existing){
   ]));
   openModal(el('div',{},[el('h3',{text:h?'EDIT BALANCE':'NEW BALANCE ENTRY'})].concat(fields)));
 }
+function monLabel(mk){var p=mk.split('-');return MONA[(+p[1])-1]+' '+p[0];}
 function snapLogList(type,label,color){
-  var wrap=el('div',{style:'margin-top:10px;max-height:130px;overflow-y:auto'});
+  var wrap=el('div',{style:'margin-top:10px'});
   var rows=state.wealthItems.filter(function(t){return t.type===type;}).slice().sort(function(a,b){return a.date<b.date?1:-1;});
+  var months=[];rows.forEach(function(r){var mk=r.date.slice(0,7);if(months.indexOf(mk)<0)months.push(mk);});
+  ui.logMonth=ui.logMonth||{};
+  var sel=(ui.logMonth[type]&&(ui.logMonth[type]==='all'||months.indexOf(ui.logMonth[type])>=0))?ui.logMonth[type]:'all';
+  var bar=el('div',{class:'row',style:'gap:8px;align-items:center;margin-bottom:6px'});
+  bar.appendChild(el('span',{class:'mini',style:'color:#8860a8',text:'LOG · month'}));
+  var dd=el('select',{style:'background:#0d0625;color:#fff;border:1px solid #3a1f6b;border-radius:6px;padding:4px 6px;font-family:inherit;font-size:12px'});
+  dd.appendChild(el('option',{value:'all',text:'All months'}));
+  months.forEach(function(mk){dd.appendChild(el('option',{value:mk,text:monLabel(mk)}));});
+  dd.value=sel;
+  dd.addEventListener('change',function(){ui.logMonth[type]=dd.value;renderWealth();});
+  bar.appendChild(dd);
+  wrap.appendChild(bar);
+  var shown=sel==='all'?rows:rows.filter(function(r){return r.date.slice(0,7)===sel;});
+  var scroll=el('div',{style:'max-height:150px;overflow-y:auto'});
   var t=el('table',{});
   t.appendChild(el('tr',{},[el('th',{text:'LOGGED'}),el('th',{text:label}),el('th',{text:''})]));
-  if(!rows.length){t.appendChild(el('tr',{},[el('td',{html:'<span class="mini">no logs yet</span>'}),el('td'),el('td')]));}
-  rows.slice(0,30).forEach(function(r){
+  if(!shown.length){t.appendChild(el('tr',{},[el('td',{html:'<span class="mini">no logs for this month</span>'}),el('td'),el('td')]));}
+  shown.slice(0,60).forEach(function(r){
     t.appendChild(el('tr',{},[
       el('td',{text:r.date+(r.manual?'  (edited)':'')}),
       el('td',{style:'color:'+color,text:'$'+fmtMoney(r.amount)}),
       el('td',{},[el('button',{class:'btn sm',onclick:(function(x){return function(){openSnapModal(type,x);};})(r)},['EDIT'])])
     ]));
   });
-  wrap.appendChild(t);
+  scroll.appendChild(t);wrap.appendChild(scroll);
   return wrap;
 }
 function openSnapModal(type,existing){
