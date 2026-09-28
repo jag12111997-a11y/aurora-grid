@@ -2668,11 +2668,11 @@ function boot(){
    ================================================================ */
 function renderJournal(){
   var body=$('#jBody');body.innerHTML='';
-  var grid=el('div',{class:'grid',style:'grid-template-columns:1fr 1fr;gap:16px'});
+  body.appendChild(projectsCard());
+  var grid=el('div',{class:'grid',style:'grid-template-columns:1fr 1fr;gap:16px;margin-top:16px'});
   grid.appendChild(journalEntryCard());
   grid.appendChild(todosCard());
   body.appendChild(grid);
-  body.appendChild(projectsCard());
 }
 function journalEntryCard(){
   var card=el('div',{class:'card'});
