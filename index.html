@@ -1951,6 +1951,7 @@ function renderWealth(){
   ['week','month'].forEach(function(r){
     blRangeBar.appendChild(el('button',{class:'btn sm '+(ui.billsRange===r?'on':''),onclick:(function(rr){return function(){ui.billsRange=rr;renderWealth();};})(r)},[r.toUpperCase()+'LY']));
   });
+  blRangeBar.appendChild(el('button',{class:'btn sm primary',onclick:function(){openSnapModal('billsnap');}},['+ LOG']));
   blSec.appendChild(blRangeBar);
   if(billSnaps.length)blSec.appendChild(renderCandleChart(groupBalancesToCandles(billSnaps,ui.billsRange)));
   var _proj=billsProjected(bills),_spent=billsSpent(bills),_left=_proj-_spent;
@@ -1959,6 +1960,7 @@ function renderWealth(){
     el('span',{style:'color:#8860a8'},['SPENT ',el('b',{style:'color:var(--bad)',text:'$'+fmtMoney(_spent)})]),
     el('span',{style:'color:#8860a8'},['LEFT ',el('b',{style:'color:var(--green)',text:'$'+fmtMoney(_left)})])
   ]));
+  blSec.appendChild(snapLogList('billsnap','SPENT','var(--bad)'));
   if(bills.length){
     var totalBills=0;
     var bt=el('table',{style:'margin-top:10px'});bt.appendChild(el('tr',{},[el('th',{text:'NAME'}),el('th',{text:'AMOUNT'}),el('th',{text:'DUE'}),el('th',{text:'FREQ'}),el('th',{text:'STATUS'}),el('th',{text:''})]));
@@ -1991,8 +1993,10 @@ function renderWealth(){
   ['week','month','quarter','year'].forEach(function(r){
     svRangeBar.appendChild(el('button',{class:'btn sm '+(ui.savingsRange===r?'on':''),onclick:(function(rr){return function(){ui.savingsRange=rr;renderWealth();};})(r)},[r.toUpperCase()+'LY']));
   });
+  svRangeBar.appendChild(el('button',{class:'btn sm primary',onclick:function(){openSnapModal('savesnap');}},['+ LOG']));
   svSec.appendChild(svRangeBar);
   if(saveSnaps.length)svSec.appendChild(renderCandleChart(groupSavingsToCandles(saveSnaps,ui.savingsRange)));
+  svSec.appendChild(snapLogList('savesnap','BALANCE','var(--purple)'));
   if(savings.length){
     var totalSav=0;
     var st=el('table',{style:'margin-top:10px'});st.appendChild(el('tr',{},[el('th',{text:'NAME'}),el('th',{text:'BALANCE'}),el('th',{text:'GOAL'}),el('th',{text:'PROGRESS'}),el('th',{text:''})]));
@@ -2074,7 +2078,7 @@ function billsProjected(bills){return bills.reduce(function(s,b){return s+(b.amo
 function billsSpent(bills){return bills.reduce(function(s,b){return s+(billHit(b)?(b.amount||0):0);},0);}
 function upsertSnap(type,date,amount){
   var ex=state.wealthItems.filter(function(t){return t.type===type&&t.date===date;})[0];
-  if(ex){if(ex.amount!==amount){ex.amount=amount;repoPut('wealthItems',ex);}return;}
+  if(ex){if(!ex.manual&&ex.amount!==amount){ex.amount=amount;repoPut('wealthItems',ex);}return;}
   var rec={id:uid(),type:type,date:date,amount:amount};
   state.wealthItems.push(rec);repoPut('wealthItems',rec);
 }
@@ -2144,6 +2148,40 @@ function openBalanceModal(existing){
     el('button',{class:'btn ghost',onclick:closeModal},['CANCEL'])
   ]));
   openModal(el('div',{},[el('h3',{text:h?'EDIT BALANCE':'NEW BALANCE ENTRY'})].concat(fields)));
+}
+function snapLogList(type,label,color){
+  var wrap=el('div',{style:'margin-top:10px;max-height:130px;overflow-y:auto'});
+  var rows=state.wealthItems.filter(function(t){return t.type===type;}).slice().sort(function(a,b){return a.date<b.date?1:-1;});
+  var t=el('table',{});
+  t.appendChild(el('tr',{},[el('th',{text:'LOGGED'}),el('th',{text:label}),el('th',{text:''})]));
+  if(!rows.length){t.appendChild(el('tr',{},[el('td',{html:'<span class="mini">no logs yet</span>'}),el('td'),el('td')]));}
+  rows.slice(0,30).forEach(function(r){
+    t.appendChild(el('tr',{},[
+      el('td',{text:r.date+(r.manual?'  (edited)':'')}),
+      el('td',{style:'color:'+color,text:'$'+fmtMoney(r.amount)}),
+      el('td',{},[el('button',{class:'btn sm',onclick:(function(x){return function(){openSnapModal(type,x);};})(r)},['EDIT'])])
+    ]));
+  });
+  wrap.appendChild(t);
+  return wrap;
+}
+function openSnapModal(type,existing){
+  var h=existing||null;var isBill=type==='billsnap';
+  var date=el('input',{type:'date',value:h?h.date:todayYmd()});
+  var amount=el('input',{type:'number',step:'0.01',value:h?h.amount:'',placeholder:'$'});
+  var fields=[fld('Date logged',date),fld(isBill?'Spent that log ($)':'Savings balance ($)',amount)];
+  fields.push(el('div',{class:'hint',style:'margin-top:4px',text:'Editing a log only changes this history point — it does not touch your live bills or savings numbers.'}));
+  fields.push(el('div',{class:'modal-actions'},[
+    el('button',{class:'btn primary',onclick:function(){
+      if(!date.value){toast('DATE REQUIRED');return;}
+      var rec=h?JSON.parse(JSON.stringify(h)):{id:uid(),type:type};
+      rec.date=date.value;rec.amount=+amount.value||0;rec.manual=true;rec.updatedAt=Date.now();
+      put('wealthItems',rec,true).then(function(){closeModal();renderWealth();toast('LOG SAVED');});
+    }},['SAVE']),
+    (h?el('button',{class:'btn danger',onclick:function(){remove('wealthItems',h.id,true).then(function(){closeModal();renderWealth();toast('LOG DELETED');});}},['DELETE']):null),
+    el('button',{class:'btn ghost',onclick:closeModal},['CANCEL'])
+  ]));
+  openModal(el('div',{},[el('h3',{text:(h?'EDIT ':'NEW ')+(isBill?'BILLS LOG':'SAVINGS LOG')})].concat(fields)));
 }
 
 function openCsvModal(){
