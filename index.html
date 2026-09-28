@@ -2796,14 +2796,48 @@ function projectsCard(){
   card.appendChild(grid);
   return card;
 }
+var _dragPid=null;
+function cycleProjectColor(id){
+  var p=state.projects.filter(function(x){return x.id===id;})[0];if(!p)return;
+  var order=[null,'green','yellow','red'];
+  var idx=order.indexOf(p.color||null);
+  p.color=order[(idx+1)%order.length];
+  repoPut('projects',p);renderJournal();
+}
+function dropProject(src,dst){
+  if(!src||src===dst)return;
+  var list=sortedProjects();
+  var from=-1,to=-1;
+  for(var k=0;k<list.length;k++){if(list[k].id===src)from=k;if(list[k].id===dst)to=k;}
+  if(from<0||to<0)return;
+  var moved=list.splice(from,1)[0];
+  list.splice(to,0,moved);
+  list.forEach(function(pp,idx){pp.order=idx;repoPut('projects',pp);});
+  renderJournal();
+}
 function projectBlock(p,i,total){
   var tasks=p.tasks||[];
   var done=tasks.filter(function(t){return t.done;}).length;
+  var PRIO={green:'#35d07f',yellow:'#ffcf3f',red:'#ff4d4d'};
   var block=el('div',{style:'border:1px solid #3a1f6b;border-radius:10px;padding:12px;background:#170a35'});
+  block.setAttribute('draggable','true');
+  block.addEventListener('dragstart',function(e){if(e.target&&(e.target.tagName==='INPUT')){e.preventDefault();return;}_dragPid=p.id;e.dataTransfer.effectAllowed='move';block.style.opacity='0.4';});
+  block.addEventListener('dragend',function(){_dragPid=null;block.style.opacity='';block.style.outline='';});
+  block.addEventListener('dragover',function(e){e.preventDefault();e.dataTransfer.dropEffect='move';if(_dragPid&&_dragPid!==p.id)block.style.outline='2px dashed #ff2d9b';});
+  block.addEventListener('dragleave',function(){block.style.outline='';});
+  block.addEventListener('drop',function(e){e.preventDefault();block.style.outline='';dropProject(_dragPid,p.id);});
   var head=el('div',{class:'row',style:'justify-content:space-between;margin-bottom:8px'});
+  var left=el('div',{class:'row',style:'gap:8px;align-items:center'});
+  var dotColor=PRIO[p.color]||'transparent';
+  var dot=el('button',{title:'priority: '+(p.color||'none')+' — click to change',style:'width:16px;height:16px;min-width:16px;border-radius:50%;cursor:pointer;padding:0;background:'+dotColor+';border:2px solid '+(p.color?dotColor:'#5a4a7a')});
+  dot.addEventListener('click',function(){cycleProjectColor(p.id);});
+  left.appendChild(dot);
   var nameBtn=el('b',{style:'color:var(--pink);letter-spacing:1px;font-size:13px;cursor:pointer',title:'click to rename',text:p.name,onclick:function(){renameProject(p.id);}});
-  head.appendChild(nameBtn);
+  left.appendChild(nameBtn);
+  head.appendChild(left);
   var btns=el('div',{class:'row',style:'gap:4px'});
+  var grip=el('span',{title:'drag to reorder',style:'cursor:grab;color:#7a6a9a;font-size:14px;padding:0 4px;user-select:none',text:'⠿'});
+  btns.appendChild(grip);
   var up=el('button',{class:'btn sm',style:'font-size:10px',title:'move up',text:'▲',onclick:function(){moveProject(p.id,-1);}});
   var down=el('button',{class:'btn sm',style:'font-size:10px',title:'move down',text:'▼',onclick:function(){moveProject(p.id,1);}});
   if(i===0){up.disabled=true;up.style.opacity='0.3';}
