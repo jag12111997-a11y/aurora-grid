@@ -2850,14 +2850,25 @@ function projectBlock(p,i,total){
   head.appendChild(btns);
   block.appendChild(head);
   block.appendChild(el('div',{class:'hint',style:'margin-bottom:8px',text:done+' / '+tasks.length+' done'}));
-  tasks.forEach(function(t){
-    var row=el('div',{class:'row',style:'margin-bottom:4px'});
-    var cb=el('input',{type:'checkbox',style:'margin-right:6px;accent-color:#ff2d9b'});
+  tasks.forEach(function(t,ti){
+    var row=el('div',{class:'row',style:'margin-bottom:4px;gap:4px;align-items:center'});
+    var tdc=PRIO[t.color]||'transparent';
+    var tdot=el('button',{title:'priority: '+(t.color||'none')+' — click to change',style:'width:12px;height:12px;min-width:12px;border-radius:50%;cursor:pointer;padding:0;background:'+tdc+';border:2px solid '+(t.color?tdc:'#5a4a7a')});
+    tdot.addEventListener('click',function(){cycleTaskColor(p.id,t.id);});
+    row.appendChild(tdot);
+    var cb=el('input',{type:'checkbox',style:'accent-color:#ff2d9b'});
     cb.checked=!!t.done;
     cb.addEventListener('change',function(){toggleProjectTask(p.id,t.id);});
     row.appendChild(cb);
     row.appendChild(el('div',{style:'flex:1;font-size:12px;color:'+(t.done?'#7a6a9a':'#e0d8f0')+';text-decoration:'+(t.done?'line-through':'none'),text:t.text}));
-    row.appendChild(el('button',{class:'btn sm',style:'font-size:9px',text:'✕',onclick:function(){deleteProjectTask(p.id,t.id);}}));
+    var tup=el('button',{class:'btn sm',style:'font-size:9px',title:'move up',text:'▲',onclick:function(){moveProjectTask(p.id,t.id,-1);}});
+    var tdn=el('button',{class:'btn sm',style:'font-size:9px',title:'move down',text:'▼',onclick:function(){moveProjectTask(p.id,t.id,1);}});
+    if(ti===0){tup.disabled=true;tup.style.opacity='0.3';}
+    if(ti===tasks.length-1){tdn.disabled=true;tdn.style.opacity='0.3';}
+    row.appendChild(tup);row.appendChild(tdn);
+    row.appendChild(el('button',{class:'btn sm',style:'font-size:9px',title:'edit',text:'✎',onclick:function(){editProjectTask(p.id,t.id);}}));
+    row.appendChild(el('button',{class:'btn sm',style:'font-size:9px',title:'add to calendar',text:'+CAL',onclick:function(){addTaskToCalendar(t.text);}}));
+    row.appendChild(el('button',{class:'btn sm',style:'font-size:9px',title:'delete',text:'✕',onclick:function(){deleteProjectTask(p.id,t.id);}}));
     block.appendChild(row);
   });
   var addRow=el('div',{class:'row',style:'margin-top:8px'});
@@ -2893,6 +2904,29 @@ function deleteProjectTask(pid,tid){
   var p=state.projects.filter(function(x){return x.id===pid;})[0];if(!p)return;
   p.tasks=(p.tasks||[]).filter(function(x){return x.id!==tid;});
   repoPut('projects',p);renderJournal();
+}
+function cycleTaskColor(pid,tid){
+  var p=state.projects.filter(function(x){return x.id===pid;})[0];if(!p)return;
+  var t=(p.tasks||[]).filter(function(x){return x.id===tid;})[0];if(!t)return;
+  var order=[null,'green','yellow','red'];
+  t.color=order[(order.indexOf(t.color||null)+1)%order.length];
+  repoPut('projects',p);renderJournal();
+}
+function editProjectTask(pid,tid){
+  var p=state.projects.filter(function(x){return x.id===pid;})[0];if(!p)return;
+  var t=(p.tasks||[]).filter(function(x){return x.id===tid;})[0];if(!t)return;
+  var v=prompt('Edit task:',t.text);if(v===null)return;v=v.trim();if(!v)return;
+  t.text=v;repoPut('projects',p);renderJournal();
+}
+function moveProjectTask(pid,tid,dir){
+  var p=state.projects.filter(function(x){return x.id===pid;})[0];if(!p)return;
+  var arr=p.tasks||[];var i=-1;for(var k=0;k<arr.length;k++){if(arr[k].id===tid){i=k;break;}}
+  var j=i+dir;if(i<0||j<0||j>=arr.length)return;
+  var tmp=arr[i];arr[i]=arr[j];arr[j]=tmp;
+  repoPut('projects',p);renderJournal();
+}
+function addTaskToCalendar(text){
+  openEventModal({title:text,recur:'once',category:'custom',heading:'ADD TO CALENDAR'});
 }
 
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
