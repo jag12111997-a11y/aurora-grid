@@ -989,7 +989,8 @@ function holidayOn(dstr){var y=+dstr.slice(0,4);return holidaysFor(y)[dstr]||nul
    UI STATE + ROUTER
    ================================================================ */
 var ui={view:'home', selDate:todayYmd(), calY:new Date().getFullYear(), calM:new Date().getMonth(),
-        homeTab:'calendar', rTab:'summary', rRange:'week', qKey:'2026-Q3', weekOffset:0, monthOffset:0};
+        homeTab:'calendar', rTab:'summary', rRange:'week', qKey:'2026-Q3', weekOffset:0, monthOffset:0,
+        wealthRange:'month', billsRange:'month', savingsRange:'month'};
 
 function showView(v){ui.view=v;
   $$('#nav button').forEach(function(b){b.classList.toggle('on',b.dataset.view===v);});
@@ -1896,6 +1897,7 @@ function wipeAndSeed(){Promise.all(STORES.map(function(s){return repoClear(s);})
    ================================================================ */
 function renderWealth(){
   var body=$('#wBody');body.innerHTML='';
+  try{wealthSnapshotToday();}catch(e){}
   var bills=state.wealthItems.filter(function(w){return w.type==='bill';});
   var savings=state.wealthItems.filter(function(w){return w.type==='savings';});
   var balances=state.wealthItems.filter(function(w){return w.type==='balance';})
@@ -1944,19 +1946,33 @@ function renderWealth(){
     el('h3',{style:'letter-spacing:2px;color:var(--warn);margin:0',text:'BILLS'}),
     el('span',{class:'spacer'}),
     el('button',{class:'btn sm primary',onclick:function(){openWealthModal('bill');}},['+ BILL'])]));
-  if(bills.length)blSec.appendChild(renderCandleChart(billsToCandles(bills)));
+  var billSnaps=state.wealthItems.filter(function(t){return t.type==='billsnap';}).map(function(t){return{date:t.date,amount:t.amount};});
+  var blRangeBar=el('div',{class:'row',style:'gap:6px;margin-top:8px'});
+  ['week','month'].forEach(function(r){
+    blRangeBar.appendChild(el('button',{class:'btn sm '+(ui.billsRange===r?'on':''),onclick:(function(rr){return function(){ui.billsRange=rr;renderWealth();};})(r)},[r.toUpperCase()+'LY']));
+  });
+  blSec.appendChild(blRangeBar);
+  if(billSnaps.length)blSec.appendChild(renderCandleChart(groupBalancesToCandles(billSnaps,ui.billsRange)));
+  var _proj=billsProjected(bills),_spent=billsSpent(bills),_left=_proj-_spent;
+  blSec.appendChild(el('div',{class:'row',style:'gap:18px;margin-top:8px;font-family:monospace;font-size:13px'},[
+    el('span',{style:'color:#8860a8'},['PROJECTED ',el('b',{style:'color:var(--warn)',text:'$'+fmtMoney(_proj)})]),
+    el('span',{style:'color:#8860a8'},['SPENT ',el('b',{style:'color:var(--bad)',text:'$'+fmtMoney(_spent)})]),
+    el('span',{style:'color:#8860a8'},['LEFT ',el('b',{style:'color:var(--green)',text:'$'+fmtMoney(_left)})])
+  ]));
   if(bills.length){
     var totalBills=0;
     var bt=el('table',{style:'margin-top:10px'});bt.appendChild(el('tr',{},[el('th',{text:'NAME'}),el('th',{text:'AMOUNT'}),el('th',{text:'DUE'}),el('th',{text:'FREQ'}),el('th',{text:'STATUS'}),el('th',{text:''})]));
     bills.forEach(function(b){totalBills+=b.amount||0;
-      var paidNow=b.paid===todayYmd().slice(0,7);
-      bt.appendChild(el('tr',{style:paidNow?'opacity:0.5':''},[el('td',{text:b.name}),
+      var hitNow=billHit(b);
+      bt.appendChild(el('tr',{style:hitNow?'opacity:0.5':''},[el('td',{text:b.name}),
         el('td',{style:'color:var(--bad)',text:'$'+fmtMoney(b.amount)}),
         el('td',{text:b.dueDay?'Day '+b.dueDay:'—'}),
         el('td',{html:'<span class="mini">'+(b.freq||'monthly')+'</span>'}),
-        el('td',{},[el('button',{class:'btn sm '+(paidNow?'on':'ghost'),onclick:(function(x){return function(){
-          x.paid=paidNow?'':todayYmd().slice(0,7);put('wealthItems',x,false).then(function(){renderWealth();});
-        };})(b)},[paidNow?'PAID ✓':'UNPAID'])]),
+        el('td',{},[el('button',{class:'btn sm '+(hitNow?'on':'ghost'),onclick:(function(x,wasHit){return function(){
+          var mk=billMonthKey();
+          if(wasHit){x.unpaid=mk;x.paid='';}else{x.paid=mk;x.unpaid='';}
+          put('wealthItems',x,false).then(function(){renderWealth();});
+        };})(b,hitNow)},[hitNow?'PAID ✓':'UNPAID'])]),
         el('td',{},[el('button',{class:'btn sm',onclick:(function(x){return function(){openWealthModal('bill',x);};})(b)},['EDIT'])])]));});
     bt.appendChild(el('tr',{style:'border-top:2px solid var(--line)'},[el('td',{html:'<b>TOTAL/MO</b>'}),
       el('td',{style:'color:var(--bad)',html:'<b>$'+fmtMoney(totalBills)+'</b>'}),el('td'),el('td'),el('td'),el('td')]));
@@ -1970,7 +1986,13 @@ function renderWealth(){
     el('h3',{style:'letter-spacing:2px;color:var(--purple);margin:0',text:'SAVINGS'}),
     el('span',{class:'spacer'}),
     el('button',{class:'btn sm primary',onclick:function(){openWealthModal('savings');}},['+ SAVINGS'])]));
-  if(savings.length)svSec.appendChild(renderCandleChart(savingsToCandles(savings)));
+  var saveSnaps=state.wealthItems.filter(function(t){return t.type==='savesnap';}).map(function(t){return{date:t.date,amount:t.amount};});
+  var svRangeBar=el('div',{class:'row',style:'gap:6px;margin-top:8px'});
+  ['week','month','quarter','year'].forEach(function(r){
+    svRangeBar.appendChild(el('button',{class:'btn sm '+(ui.savingsRange===r?'on':''),onclick:(function(rr){return function(){ui.savingsRange=rr;renderWealth();};})(r)},[r.toUpperCase()+'LY']));
+  });
+  svSec.appendChild(svRangeBar);
+  if(saveSnaps.length)svSec.appendChild(renderCandleChart(groupSavingsToCandles(saveSnaps,ui.savingsRange)));
   if(savings.length){
     var totalSav=0;
     var st=el('table',{style:'margin-top:10px'});st.appendChild(el('tr',{},[el('th',{text:'NAME'}),el('th',{text:'BALANCE'}),el('th',{text:'GOAL'}),el('th',{text:'PROGRESS'}),el('th',{text:''})]));
@@ -2039,18 +2061,39 @@ function groupBalancesToCandles(balances,range){
   });
 }
 
-function billsToCandles(bills){
-  var run=0;
-  return bills.map(function(b){
-    var a=b.amount||0;var o=run;run+=a;
-    return{label:b.name,open:o,close:run,high:run,low:o,up:false};
-  });
+function billMonthKey(){return todayYmd().slice(0,7);}
+function billHit(b){
+  var mk=billMonthKey();
+  if(b.unpaid===mk)return false;
+  if(b.paid===mk)return true;
+  var dd=+b.dueDay||0;
+  if(!dd)return false;
+  return (new Date().getDate())>=dd;
 }
-function savingsToCandles(savings){
-  return savings.map(function(s){
-    var bal=s.amount||0;var goal=s.goal||bal;
-    return{label:s.name,open:0,close:bal,high:Math.max(bal,goal),low:0,up:true};
-  });
+function billsProjected(bills){return bills.reduce(function(s,b){return s+(b.amount||0);},0);}
+function billsSpent(bills){return bills.reduce(function(s,b){return s+(billHit(b)?(b.amount||0):0);},0);}
+function upsertSnap(type,date,amount){
+  var ex=state.wealthItems.filter(function(t){return t.type===type&&t.date===date;})[0];
+  if(ex){if(ex.amount!==amount){ex.amount=amount;repoPut('wealthItems',ex);}return;}
+  var rec={id:uid(),type:type,date:date,amount:amount};
+  state.wealthItems.push(rec);repoPut('wealthItems',rec);
+}
+function wealthSnapshotToday(){
+  var bills=state.wealthItems.filter(function(t){return t.type==='bill';});
+  var savings=state.wealthItems.filter(function(t){return t.type==='savings';});
+  var today=todayYmd();
+  upsertSnap('billsnap',today,billsSpent(bills));
+  upsertSnap('savesnap',today,savings.reduce(function(s,v){return s+(v.amount||0);},0));
+}
+function groupSavingsToCandles(snaps,range){
+  var base=groupBalancesToCandles(snaps,range);
+  for(var i=1;i<base.length;i++){
+    base[i].open=base[i-1].close;
+    base[i].up=base[i].close>=base[i].open;
+    base[i].high=Math.max(base[i].high,base[i].open);
+    base[i].low=Math.min(base[i].low,base[i].open);
+  }
+  return base;
 }
 function renderCandleChart(candles){
   var W=760,H=280,padL=54,padR=12,padT=16,padB=42;
@@ -2669,6 +2712,7 @@ function boot(){
     return ensureScheduleV2().then(loadAll);
   }).then(function(){
     buildClock();planetary.init();wire();
+    try{wealthSnapshotToday();}catch(e){}
     if(state.settings.lastHomeTab)ui.homeTab=state.settings.lastHomeTab;
     var last=state.settings.lastTab||'home';
     if(last==='reports')last='home';
