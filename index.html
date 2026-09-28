@@ -2626,7 +2626,7 @@ function wire(){
   $('#addEvent').addEventListener('click',function(){openEventModal({heading:'ADD EVENT'});});
   $$('#rTabs button').forEach(function(b){b.addEventListener('click',function(){ui.rTab=b.dataset.r;renderReports();});});
   $$('#rRangeBar button').forEach(function(b){b.addEventListener('click',function(){ui.rRange=b.dataset.range;renderReports();});});
-  $$('#hTabs button').forEach(function(b){b.addEventListener('click',function(){ui.homeTab=b.dataset.h;renderHome();});});
+  $$('#hTabs button').forEach(function(b){b.addEventListener('click',function(){ui.homeTab=b.dataset.h;setSetting('lastHomeTab',b.dataset.h);renderHome();});});
   $$('#hRangeBar button').forEach(function(b){b.addEventListener('click',function(){ui.rRange=b.dataset.hrange;renderHome();});});
   $$('#calSummaryPanel button[data-csrange]').forEach(function(b){b.addEventListener('click',function(){ui.rRange=b.dataset.csrange;ui.weekOffset=0;ui.monthOffset=0;renderHome();});});
   $('#summPrev').addEventListener('click',function(){if(ui.rRange==='week')ui.weekOffset--;else ui.monthOffset--;renderHome();});
@@ -2650,6 +2650,7 @@ function boot(){
     return ensureScheduleV2().then(loadAll);
   }).then(function(){
     buildClock();planetary.init();wire();
+    if(state.settings.lastHomeTab)ui.homeTab=state.settings.lastHomeTab;
     var last=state.settings.lastTab||'home';
     if(last==='reports')last='home';
     showView(last);
