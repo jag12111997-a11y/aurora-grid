@@ -2747,26 +2747,60 @@ function deleteTodo(id){
   state.todos=state.todos.filter(function(x){return x.id!==id;});
   repoDel('todos',id);renderJournal();
 }
+function sortedProjects(){
+  return (state.projects||[]).slice().sort(function(a,b){
+    var ao=(a.order!=null)?a.order:-a.ts;
+    var bo=(b.order!=null)?b.order:-b.ts;
+    return ao-bo;
+  });
+}
+function moveProject(id,dir){
+  var list=sortedProjects();
+  var i=-1;
+  for(var k=0;k<list.length;k++){if(list[k].id===id){i=k;break;}}
+  var j=i+dir;
+  if(i<0||j<0||j>=list.length)return;
+  var tmp=list[i];list[i]=list[j];list[j]=tmp;
+  list.forEach(function(p,idx){p.order=idx;repoPut('projects',p);});
+  renderJournal();
+}
+function renameProject(id){
+  var p=state.projects.filter(function(x){return x.id===id;})[0];if(!p)return;
+  var name=prompt('Rename project:',p.name);
+  if(name===null)return;
+  name=name.trim();if(!name)return;
+  p.name=name;repoPut('projects',p);renderJournal();
+}
 function projectsCard(){
   var card=el('div',{class:'card',style:'margin-top:16px'});
   var head=el('div',{class:'row',style:'justify-content:space-between;margin-bottom:10px'});
   head.appendChild(el('h3',{style:'letter-spacing:2px;color:var(--pink);margin:0',text:'PROJECTS'}));
   head.appendChild(el('button',{class:'btn sm primary',text:'+ NEW PROJECT',onclick:addProject}));
   card.appendChild(head);
-  var projects=(state.projects||[]).slice().sort(function(a,b){return b.ts-a.ts;});
+  var projects=sortedProjects();
   if(!projects.length){card.appendChild(el('div',{class:'hint',text:'No projects yet. Track anything you are building that does not belong on your calendar.'}));return card;}
   var grid=el('div',{class:'grid',style:'grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px'});
-  projects.forEach(function(p){grid.appendChild(projectBlock(p));});
+  projects.forEach(function(p,i){grid.appendChild(projectBlock(p,i,projects.length));});
   card.appendChild(grid);
   return card;
 }
-function projectBlock(p){
+function projectBlock(p,i,total){
   var tasks=p.tasks||[];
   var done=tasks.filter(function(t){return t.done;}).length;
   var block=el('div',{style:'border:1px solid #3a1f6b;border-radius:10px;padding:12px;background:#170a35'});
   var head=el('div',{class:'row',style:'justify-content:space-between;margin-bottom:8px'});
-  head.appendChild(el('b',{style:'color:var(--pink);letter-spacing:1px;font-size:13px',text:p.name}));
-  head.appendChild(el('button',{class:'btn sm',style:'font-size:10px',text:'✕',onclick:function(){deleteProject(p.id);}}));
+  var nameBtn=el('b',{style:'color:var(--pink);letter-spacing:1px;font-size:13px;cursor:pointer',title:'click to rename',text:p.name,onclick:function(){renameProject(p.id);}});
+  head.appendChild(nameBtn);
+  var btns=el('div',{class:'row',style:'gap:4px'});
+  var up=el('button',{class:'btn sm',style:'font-size:10px',title:'move up',text:'▲',onclick:function(){moveProject(p.id,-1);}});
+  var down=el('button',{class:'btn sm',style:'font-size:10px',title:'move down',text:'▼',onclick:function(){moveProject(p.id,1);}});
+  if(i===0){up.disabled=true;up.style.opacity='0.3';}
+  if(i===total-1){down.disabled=true;down.style.opacity='0.3';}
+  btns.appendChild(up);
+  btns.appendChild(down);
+  btns.appendChild(el('button',{class:'btn sm',style:'font-size:10px',title:'rename',text:'✎',onclick:function(){renameProject(p.id);}}));
+  btns.appendChild(el('button',{class:'btn sm',style:'font-size:10px',text:'✕',onclick:function(){deleteProject(p.id);}}));
+  head.appendChild(btns);
   block.appendChild(head);
   block.appendChild(el('div',{class:'hint',style:'margin-bottom:8px',text:done+' / '+tasks.length+' done'}));
   tasks.forEach(function(t){
