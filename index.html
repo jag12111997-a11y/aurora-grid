@@ -2971,9 +2971,13 @@ function projectBlock(p,i,total){
   tasks.forEach(function(t,ti){
     var row=el('div',{class:'row',style:'margin-bottom:4px;gap:4px;align-items:center'});
     row.appendChild(taskTimerEl(p.id,t));
-    var tdc=PRIO[t.color]||'transparent';
-    var tdot=el('button',{title:'priority: '+(t.color||'none')+' — click to change',style:'width:12px;height:12px;min-width:12px;border-radius:50%;cursor:pointer;padding:0;background:'+tdc+';border:2px solid '+(t.color?tdc:'#5a4a7a')});
-    tdot.addEventListener('click',function(){cycleTaskColor(p.id,t.id);});
+    var timed=!!t.due&&!t.done;
+    var tdc,borderC;
+    if(timed){var _st=t.start||(t.due-3600000);tdc=thirdColorVal(_st,t.due,Date.now());borderC=tdc;}
+    else{tdc=PRIO[t.color]||'transparent';borderC=t.color?PRIO[t.color]:'#5a4a7a';}
+    var tdot=el('button',{title:timed?'priority is locked to the timer':'priority: '+(t.color||'none')+' — click to change',style:'width:12px;height:12px;min-width:12px;border-radius:50%;cursor:pointer;padding:0;background:'+tdc+';border:2px solid '+borderC});
+    if(timed){tdot.className='tdot-timed';tdot.setAttribute('data-start',t.start||(t.due-3600000));tdot.setAttribute('data-due',t.due);tdot.addEventListener('click',function(){toast('COLOR IS LOCKED TO THE TIMER');});}
+    else{tdot.addEventListener('click',function(){cycleTaskColor(p.id,t.id);});}
     row.appendChild(tdot);
     var cb=el('input',{type:'checkbox',style:'accent-color:#ff2d9b'});
     cb.checked=!!t.done;
@@ -3057,6 +3061,14 @@ function fmtLeft(due){
   if(h>=1)return h+':'+pad(m)+' left';
   return m+':'+pad(sec)+' left';
 }
+function thirdColorVal(start,due,now){
+  if(now>=due)return '#ff4d4d';
+  var total=due-start; if(total<=0)return '#35d07f';
+  var frac=(now-start)/total;
+  if(frac<1/3)return '#35d07f';
+  if(frac<2/3)return '#ffcf3f';
+  return '#ff4d4d';
+}
 function taskTimerEl(pid,t){
   var wrap=el('span',{style:'display:inline-flex;align-items:center;gap:3px;min-width:60px;flex-wrap:wrap'});
   var over=t.due&&(t.due-Date.now())<=0&&!t.done;
@@ -3087,9 +3099,9 @@ function openTaskTimerModal(pid,tid){
       el('button',{class:'btn primary',onclick:function(){
         if(!timeIn.value){toast('PICK A TIME');return;}
         var dt=new Date((dateIn.value||todayYmd())+'T'+timeIn.value);
-        t.due=dt.getTime();repoPut('projects',p);closeModal();renderJournal();toast('TIMER SET');
+        t.start=Date.now();t.due=dt.getTime();repoPut('projects',p);closeModal();renderJournal();toast('TIMER SET');
       }},['SAVE']),
-      (t.due?el('button',{class:'btn danger',onclick:function(){t.due=null;repoPut('projects',p);closeModal();renderJournal();toast('TIMER CLEARED');}},['CLEAR']):null),
+      (t.due?el('button',{class:'btn danger',onclick:function(){t.due=null;t.start=null;repoPut('projects',p);closeModal();renderJournal();toast('TIMER CLEARED');}},['CLEAR']):null),
       el('button',{class:'btn ghost',onclick:closeModal},['CANCEL'])
     ])];
   openModal(el('div',{},[el('h3',{text:'TASK TIMER'})].concat(fields)));
@@ -3106,6 +3118,8 @@ function startCountdownTicker(){
       n.textContent=fmtLeft(due);
       n.style.color=(due-now<=0)?'#ff4d4d':'#8fd6ff';
     }
+    var dots=document.querySelectorAll('.tdot-timed[data-due]');
+    for(var j=0;j<dots.length;j++){var dn=dots[j],dd=+dn.getAttribute('data-due'),ds=+dn.getAttribute('data-start');var dcol=thirdColorVal(ds,dd,now);dn.style.background=dcol;dn.style.borderColor=dcol;}
     if(expired&&ui.view==='home'&&ui.homeTab==='journal'&&typeof renderJournal==='function')renderJournal();
   },1000);
 }
