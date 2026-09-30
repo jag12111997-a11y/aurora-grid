@@ -58,6 +58,8 @@
   .view{display:none}
   .view.on{display:block;animation:fade .25s ease}
   @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1}}
+  @keyframes duepulse{0%,100%{opacity:1}50%{opacity:0.35}}
+  .cd-over{animation:duepulse 1.2s ease-in-out infinite}
   /* ---- panels ---- */
   .panel{background:linear-gradient(var(--panel),var(--bg2));border:1px solid var(--line2);
     border-radius:10px;padding:14px}
@@ -3056,13 +3058,17 @@ function fmtLeft(due){
   return m+':'+pad(sec)+' left';
 }
 function taskTimerEl(pid,t){
-  var wrap=el('span',{style:'display:inline-flex;align-items:center;min-width:60px'});
-  if(t.due){
-    var over=(t.due-Date.now())<=0;
-    var span=el('span',{'class':'cd','data-due':t.due,title:'click to change/clear timer',style:'cursor:pointer;font-size:11px;font-family:monospace;color:'+(over?'#ff4d4d':'#8fd6ff')});
+  var wrap=el('span',{style:'display:inline-flex;align-items:center;gap:3px;min-width:60px;flex-wrap:wrap'});
+  var over=t.due&&(t.due-Date.now())<=0&&!t.done;
+  if(t.due&&!t.done&&!over){
+    var span=el('span',{'class':'cd','data-due':t.due,title:'click to change/clear timer',style:'cursor:pointer;font-size:11px;font-family:monospace;color:#8fd6ff'});
     span.textContent=fmtLeft(t.due);
     span.addEventListener('click',function(){openTaskTimerModal(pid,t.id);});
     wrap.appendChild(span);
+  }else if(over){
+    wrap.appendChild(el('span',{class:'cd-over',style:'font-size:10px;font-family:monospace;color:#ff4d4d;font-weight:700',text:'DUE'}));
+    wrap.appendChild(el('button',{class:'btn sm',style:'font-size:9px;padding:2px 5px',title:'add more time',text:'+TIME',onclick:function(){openTaskTimerModal(pid,t.id);}}));
+    wrap.appendChild(el('button',{class:'btn sm',style:'font-size:9px;padding:2px 6px',title:'mark done',text:'\u2713',onclick:function(){toggleProjectTask(pid,t.id);}}));
   }else{
     wrap.appendChild(el('button',{class:'btn sm',style:'font-size:10px',title:'set timer',text:'\u23f1',onclick:function(){openTaskTimerModal(pid,t.id);}}));
   }
@@ -3092,13 +3098,15 @@ var _cdStarted=false;
 function startCountdownTicker(){
   if(_cdStarted)return;_cdStarted=true;
   setInterval(function(){
-    var now=Date.now();
+    var now=Date.now(),expired=false;
     var list=document.querySelectorAll('.cd[data-due]');
     for(var i=0;i<list.length;i++){
       var n=list[i],due=+n.getAttribute('data-due');
+      if(due-now<=0)expired=true;
       n.textContent=fmtLeft(due);
       n.style.color=(due-now<=0)?'#ff4d4d':'#8fd6ff';
     }
+    if(expired&&ui.view==='home'&&ui.homeTab==='journal'&&typeof renderJournal==='function')renderJournal();
   },1000);
 }
 
