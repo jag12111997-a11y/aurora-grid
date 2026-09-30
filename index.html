@@ -2756,6 +2756,7 @@ function boot(){
   }).then(function(){
     buildClock();planetary.init();wire();
     try{wealthSnapshotToday();}catch(e){}
+    try{startCountdownTicker();}catch(e){}
     if(state.settings.lastHomeTab)ui.homeTab=state.settings.lastHomeTab;
     var last=state.settings.lastTab||'home';
     if(last==='reports')last='home';
@@ -2774,11 +2775,10 @@ function boot(){
    ================================================================ */
 function renderJournal(){
   var body=$('#jBody');body.innerHTML='';
+  body.appendChild(todosCard());
   body.appendChild(projectsCard());
-  var grid=el('div',{class:'grid',style:'grid-template-columns:1fr 1fr;gap:16px;margin-top:16px'});
-  grid.appendChild(journalEntryCard());
-  grid.appendChild(todosCard());
-  body.appendChild(grid);
+  var jc=journalEntryCard();jc.style.marginTop='16px';
+  body.appendChild(jc);
 }
 function journalEntryCard(){
   var card=el('div',{class:'card'});
@@ -2958,6 +2958,7 @@ function projectBlock(p,i,total){
   block.appendChild(el('div',{class:'hint',style:'margin-bottom:8px',text:done+' / '+tasks.length+' done'}));
   tasks.forEach(function(t,ti){
     var row=el('div',{class:'row',style:'margin-bottom:4px;gap:4px;align-items:center'});
+    row.appendChild(taskTimerEl(p.id,t));
     var tdc=PRIO[t.color]||'transparent';
     var tdot=el('button',{title:'priority: '+(t.color||'none')+' — click to change',style:'width:12px;height:12px;min-width:12px;border-radius:50%;cursor:pointer;padding:0;background:'+tdc+';border:2px solid '+(t.color?tdc:'#5a4a7a')});
     tdot.addEventListener('click',function(){cycleTaskColor(p.id,t.id);});
@@ -3033,6 +3034,59 @@ function moveProjectTask(pid,tid,dir){
 }
 function addTaskToCalendar(text){
   openEventModal({title:text,recur:'once',category:'custom',heading:'ADD TO CALENDAR'});
+}
+function fmtLeft(due){
+  var ms=due-Date.now();
+  if(ms<=0)return 'DUE';
+  var d=Math.floor(ms/86400000),h=Math.floor(ms%86400000/3600000),m=Math.floor(ms%3600000/60000),sec=Math.floor(ms%60000/1000);
+  if(d>=1)return d+'d '+h+'h left';
+  if(h>=1)return h+':'+pad(m)+' left';
+  return m+':'+pad(sec)+' left';
+}
+function taskTimerEl(pid,t){
+  var wrap=el('span',{style:'display:inline-flex;align-items:center;min-width:60px'});
+  if(t.due){
+    var over=(t.due-Date.now())<=0;
+    var span=el('span',{'class':'cd','data-due':t.due,title:'click to change/clear timer',style:'cursor:pointer;font-size:11px;font-family:monospace;color:'+(over?'#ff4d4d':'#8fd6ff')});
+    span.textContent=fmtLeft(t.due);
+    span.addEventListener('click',function(){openTaskTimerModal(pid,t.id);});
+    wrap.appendChild(span);
+  }else{
+    wrap.appendChild(el('button',{class:'btn sm',style:'font-size:10px',title:'set timer',text:'\u23f1',onclick:function(){openTaskTimerModal(pid,t.id);}}));
+  }
+  return wrap;
+}
+function openTaskTimerModal(pid,tid){
+  var p=state.projects.filter(function(x){return x.id===pid;})[0];if(!p)return;
+  var t=(p.tasks||[]).filter(function(x){return x.id===tid;})[0];if(!t)return;
+  var d=t.due?new Date(t.due):null;
+  var dateIn=el('input',{type:'date',value:d?ymd(d):todayYmd()});
+  var timeIn=el('input',{type:'time',value:d?pad(d.getHours())+':'+pad(d.getMinutes()):''});
+  var fields=[fld('Date',dateIn),fld('Time',timeIn),
+    el('div',{class:'hint',style:'margin-top:4px',text:'Just a countdown to keep you on track \u2014 no notification.'}),
+    el('div',{class:'modal-actions'},[
+      el('button',{class:'btn primary',onclick:function(){
+        if(!timeIn.value){toast('PICK A TIME');return;}
+        var dt=new Date((dateIn.value||todayYmd())+'T'+timeIn.value);
+        t.due=dt.getTime();repoPut('projects',p);closeModal();renderJournal();toast('TIMER SET');
+      }},['SAVE']),
+      (t.due?el('button',{class:'btn danger',onclick:function(){t.due=null;repoPut('projects',p);closeModal();renderJournal();toast('TIMER CLEARED');}},['CLEAR']):null),
+      el('button',{class:'btn ghost',onclick:closeModal},['CANCEL'])
+    ])];
+  openModal(el('div',{},[el('h3',{text:'TASK TIMER'})].concat(fields)));
+}
+var _cdStarted=false;
+function startCountdownTicker(){
+  if(_cdStarted)return;_cdStarted=true;
+  setInterval(function(){
+    var now=Date.now();
+    var list=document.querySelectorAll('.cd[data-due]');
+    for(var i=0;i<list.length;i++){
+      var n=list[i],due=+n.getAttribute('data-due');
+      n.textContent=fmtLeft(due);
+      n.style.color=(due-now<=0)?'#ff4d4d':'#8fd6ff';
+    }
+  },1000);
 }
 
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
