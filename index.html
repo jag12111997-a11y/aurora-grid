@@ -3061,7 +3061,8 @@ function openTaskTimerModal(pid,tid){
   var t=(p.tasks||[]).filter(function(x){return x.id===tid;})[0];if(!t)return;
   var d=t.due?new Date(t.due):null;
   var dateIn=el('input',{type:'date',value:d?ymd(d):todayYmd()});
-  var timeIn=el('input',{type:'time',value:d?pad(d.getHours())+':'+pad(d.getMinutes()):''});
+  var _now=new Date();
+  var timeIn=el('input',{type:'time',value:d?pad(d.getHours())+':'+pad(d.getMinutes()):pad(_now.getHours())+':'+pad(_now.getMinutes())});
   var fields=[fld('Date',dateIn),fld('Time',timeIn),
     el('div',{class:'hint',style:'margin-top:4px',text:'Just a countdown to keep you on track \u2014 no notification.'}),
     el('div',{class:'modal-actions'},[
