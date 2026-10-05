@@ -2796,6 +2796,8 @@ function journalEntryCard(){
   var card=el('div',{class:'card'});
   card.appendChild(el('h3',{style:'letter-spacing:2px;color:var(--pink);margin:0 0 10px',text:'JOURNAL ENTRY'}));
   var ta=el('textarea',{id:'jNewEntry',placeholder:'What is on your mind today...',style:'width:100%;min-height:140px;background:#0d0625;color:#fff;border:1px solid #3a1f6b;border-radius:8px;padding:10px;font-family:inherit;font-size:14px;resize:vertical'});
+  try{var draft=localStorage.getItem('jDraft');if(draft)ta.value=draft;}catch(err){}
+  ta.addEventListener('input',function(){try{localStorage.setItem('jDraft',ta.value);}catch(err){}});
   card.appendChild(ta);
   var row=el('div',{class:'row',style:'margin-top:8px;justify-content:flex-end'});
   row.appendChild(el('button',{class:'btn sm primary',text:'+ SAVE ENTRY',onclick:saveJournalEntry}));
@@ -2822,6 +2824,7 @@ function saveJournalEntry(){
   if(!text)return;
   var e={id:uid(),ts:Date.now(),text:text};
   state.journalEntries.push(e);repoPut('journalEntries',e);
+  try{localStorage.removeItem('jDraft');}catch(err){}
   renderJournal();
 }
 function deleteJournalEntry(id){
