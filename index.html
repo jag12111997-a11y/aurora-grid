@@ -2787,7 +2787,6 @@ function boot(){
    ================================================================ */
 function renderJournal(){
   var body=$('#jBody');body.innerHTML='';
-  body.appendChild(todosCard());
   body.appendChild(projectsCard());
   var jc=journalEntryCard();jc.style.marginTop='16px';
   body.appendChild(jc);
@@ -2816,9 +2815,29 @@ function journalEntryCard(){
     item.appendChild(el('div',{style:'white-space:pre-wrap;font-size:13px;color:#e0d8f0',text:e.text}));
     list.appendChild(item);
   });
-  card.appendChild(list);
+  try{ if(!localStorage.getItem('jPin')) localStorage.setItem('jPin','9696'); }catch(err){}
+  var wrap=el('div',{style:'position:relative'});
+  if(!_journalUnlocked){ list.style.filter='blur(7px)'; list.style.pointerEvents='none'; list.style.userSelect='none'; }
+  wrap.appendChild(list);
+  if(!_journalUnlocked){
+    var ov=el('div',{style:'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:rgba(13,6,37,0.55);border-radius:8px'});
+    ov.appendChild(el('div',{style:'color:var(--pink);letter-spacing:2px;font-size:12px',text:'🔒 JOURNAL LOCKED'}));
+    var pin=el('input',{type:'password',inputmode:'numeric',placeholder:'enter PIN',style:'width:160px;text-align:center;background:#0d0625;color:#fff;border:1px solid #3a1f6b;border-radius:8px;padding:8px;font-family:inherit;font-size:14px;letter-spacing:4px'});
+    var msg=el('div',{style:'color:#ff6b6b;font-size:11px;min-height:14px'});
+    var tryUnlock=function(){
+      var v=(pin.value||'').trim();var real='9696';try{real=localStorage.getItem('jPin')||'9696';}catch(e){real='9696';}
+      if(v===real){_journalUnlocked=true;renderJournal();}else{msg.textContent='wrong PIN';pin.value='';}
+    };
+    pin.addEventListener('keydown',function(e){if(e.key==='Enter')tryUnlock();});
+    ov.appendChild(pin);
+    ov.appendChild(el('button',{class:'btn sm primary',text:'UNLOCK',onclick:tryUnlock}));
+    ov.appendChild(msg);
+    wrap.appendChild(ov);
+  }
+  card.appendChild(wrap);
   return card;
 }
+var _journalUnlocked=false;
 function saveJournalEntry(){
   var ta=$('#jNewEntry');var text=(ta.value||'').trim();
   if(!text)return;
@@ -2937,6 +2956,24 @@ function dropProject(src,dst){
   list.forEach(function(pp,idx){pp.order=idx;repoPut('projects',pp);});
   renderJournal();
 }
+function projectUrgencyColor(p){
+  var tasks=(p.tasks||[]);var now=Date.now();var level=0;
+  tasks.forEach(function(t){
+    if(t.done)return;
+    var lv=0;
+    if(t.due){ if(now>=t.due){lv=3;} else{ var _st=t.start||(t.due-3600000); var c=thirdColorVal(_st,t.due,now); lv=(c==='#ff4d4d')?3:(c==='#ffcf3f')?2:1; } }
+    else if(t.color==='red'){lv=3;} else if(t.color==='yellow'){lv=2;} else if(t.color==='green'){lv=1;}
+    if(lv>level)level=lv;
+  });
+  if(level===3)return '#ff4d4d';
+  if(level===2)return '#ffcf3f';
+  if(level===1)return '#35d07f';
+  return 'transparent';
+}
+function toggleProjectCollapsed(id){
+  var p=state.projects.filter(function(x){return x.id===id;})[0];if(!p)return;
+  p.collapsed=!p.collapsed;repoPut('projects',p);renderJournal();
+}
 function projectBlock(p,i,total){
   var tasks=p.tasks||[];
   var done=tasks.filter(function(t){return t.done;}).length;
@@ -2950,9 +2987,10 @@ function projectBlock(p,i,total){
   block.addEventListener('drop',function(e){e.preventDefault();block.style.outline='';dropProject(_dragPid,p.id);});
   var head=el('div',{class:'row',style:'justify-content:space-between;margin-bottom:8px'});
   var left=el('div',{class:'row',style:'gap:8px;align-items:center'});
-  var dotColor=PRIO[p.color]||'transparent';
-  var dot=el('button',{title:'priority: '+(p.color||'none')+' — click to change',style:'width:16px;height:16px;min-width:16px;border-radius:50%;cursor:pointer;padding:0;background:'+dotColor+';border:2px solid '+(p.color?dotColor:'#5a4a7a')});
-  dot.addEventListener('click',function(){cycleProjectColor(p.id);});
+  var caret=el('button',{class:'btn sm',style:'font-size:11px;padding:2px 6px',title:(p.collapsed?'expand':'collapse'),text:(p.collapsed?'▸':'▾'),onclick:function(){toggleProjectCollapsed(p.id);}});
+  left.appendChild(caret);
+  var dotColor=projectUrgencyColor(p);
+  var dot=el('span',{title:'urgency — auto, reflects the most urgent task inside',style:'display:inline-block;width:16px;height:16px;min-width:16px;border-radius:50%;padding:0;background:'+dotColor+';border:2px solid '+(dotColor==='transparent'?'#5a4a7a':dotColor)});
   left.appendChild(dot);
   var nameBtn=el('b',{style:'color:var(--pink);letter-spacing:1px;font-size:13px;cursor:pointer',title:'click to rename',text:p.name,onclick:function(){renameProject(p.id);}});
   left.appendChild(nameBtn);
@@ -2971,6 +3009,7 @@ function projectBlock(p,i,total){
   head.appendChild(btns);
   block.appendChild(head);
   block.appendChild(el('div',{class:'hint',style:'margin-bottom:8px',text:done+' / '+tasks.length+' done'}));
+  if(!p.collapsed){
   tasks.forEach(function(t,ti){
     var row=el('div',{class:'row',style:'margin-bottom:4px;gap:4px;align-items:center'});
     row.appendChild(taskTimerEl(p.id,t));
@@ -3005,6 +3044,7 @@ function projectBlock(p,i,total){
   addRow.appendChild(inp);
   addRow.appendChild(el('button',{class:'btn sm',style:'font-size:10px',text:'+',onclick:function(){addProjectTask(p.id,inp.value);}}));
   block.appendChild(addRow);
+  }
   return block;
 }
 function addProject(){
